@@ -210,11 +210,3 @@ Open an **issue** in the respective GitHub repository or check the documentation
 
 ---
 
-### **Contributors & Credits**  
-Built by **Asish Nelapati, Siddartha Swaroop**, leveraging cutting-edge AI, cloud, and financial APIs.  
-
-🛠 Want to contribute? Fork & submit a PR!  
-
-📫 Questions? Open an **issue** or reach out to **asish.nelapati@gmail.com**.  
-
-**[Try it out now!](https://github.com/asish-kun/AI-Financial-Advisor-UI)**
