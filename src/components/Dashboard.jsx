@@ -54,21 +54,63 @@ const WATCHLIST = [
 ];
 
 /* ─── MOCK DATA (replaced by real API in production) ─────────── */
-function mockPrices(base, n = 60) {
-  let p = base;
-  return Array.from({ length: n }, (_, i) => {
-    p = p * (1 + (Math.random() - 0.485) * 0.018);
-    const rsi = 30 + Math.random() * 50;
-    const macd = (Math.random() - 0.48) * 4;
-    return {
-      day: i,
-      price: +p.toFixed(2),
-      volume: Math.floor(Math.random() * 80 + 20) * 1e6,
-      rsi: +rsi.toFixed(1),
-      macd: +macd.toFixed(3),
-      signal: +(macd * 0.85 + (Math.random() - 0.5) * 0.3).toFixed(3),
-    };
-  });
+/* ─── REAL DATA HELPERS ─────────────────────────────────────── */
+
+// Compute RSI from price array
+function computeRSI(closes, period = 14) {
+  if (closes.length < period + 1) return null;
+  let gains = 0, losses = 0;
+  for (let i = 1; i <= period; i++) {
+    const d = closes[i] - closes[i - 1];
+    if (d > 0) gains += d; else losses -= d;
+  }
+  let avgGain = gains / period, avgLoss = losses / period;
+  for (let i = period + 1; i < closes.length; i++) {
+    const d = closes[i] - closes[i - 1];
+    avgGain = (avgGain * (period - 1) + (d > 0 ? d : 0)) / period;
+    avgLoss = (avgLoss * (period - 1) + (d < 0 ? -d : 0)) / period;
+  }
+  if (avgLoss === 0) return 100;
+  return +(100 - 100 / (1 + avgGain / avgLoss)).toFixed(1);
+}
+
+// Compute EMA
+function computeEMA(closes, period) {
+  const k = 2 / (period + 1);
+  let ema = closes[0];
+  return closes.map(p => { ema = p * k + ema * (1 - k); return ema; });
+}
+
+// Compute MACD from closes
+function computeMACD(closes) {
+  if (closes.length < 26) return { macd: 0, signal: 0 };
+  const ema12 = computeEMA(closes, 12);
+  const ema26 = computeEMA(closes, 26);
+  const macdLine = ema12.map((v, i) => v - ema26[i]);
+  const signalLine = computeEMA(macdLine.slice(25), 9);
+  return {
+    macd: +macdLine[macdLine.length - 1].toFixed(3),
+    signal: +signalLine[signalLine.length - 1].toFixed(3),
+  };
+}
+
+// Transform Alpha Vantage time series into chart-ready format
+function transformTimeSeries(data) {
+  const closes = data.map(d => d.close);
+  const rsiValue = computeRSI(closes);
+  const { macd, signal } = computeMACD(closes);
+  return data.map((d, i) => ({
+    day: i,
+    date: d.time,
+    price: d.close,
+    open: d.open,
+    high: d.high,
+    low: d.low,
+    volume: d.volume,
+    rsi: computeRSI(closes.slice(0, i + 1)) || rsiValue,
+    macd: i >= 26 ? +( computeEMA(closes.slice(0, i+1), 12).at(-1) - computeEMA(closes.slice(0, i+1), 26).at(-1) ).toFixed(3) : 0,
+    signal: i >= 35 ? signal : 0,
+  }));
 }
 
 const BASE_PRICES = { AAPL:189, NVDA:875, MSFT:415, GOOGL:175, INFY:18, WIT:6, HDB:62 };
@@ -165,17 +207,72 @@ export default function Dashboard() {
   const [tab, setTab]             = useState("chart");
   const chatEndRef = useRef(null);
 
-  // Generate mock price data
+  // Fetch real stock data from Flask backend
   useEffect(() => {
-    const d = {};
-    WATCHLIST.forEach(({ sym }) => { d[sym] = mockPrices(BASE_PRICES[sym]); });
-    setPriceData(d);
-    const prices = {};
-    WATCHLIST.forEach(({ sym }) => {
-      const arr = d[sym];
-      prices[sym] = { price: arr[arr.length-1].price, prev: arr[0].price };
-    });
-    setLivePrice(prices);
+    const fetchAll = async () => {
+      const newData = {};
+      const newPrices = {};
+
+      // Step 1: Fetch all live quotes at once using yfinance multi endpoint
+      try {
+        const symbols = WATCHLIST.map(w => w.sym).join(' ');
+        const multiRes = await fetch(`${BACKEND}/stocks/yf/multi?symbols=${symbols}`);
+        const multiJson = await multiRes.json();
+        Object.entries(multiJson).forEach(([sym, q]) => {
+          if (q.price > 0) {
+            newPrices[sym] = { price: q.price, prev: q.prev_close };
+          }
+        });
+        setLivePrice({ ...newPrices });
+      } catch (e) {
+        console.warn('Multi quote fetch failed:', e.message);
+      }
+
+      // Step 2: Fetch chart history for selected stock first (fastest UX)
+      const orderedSymbols = [
+        selected,
+        ...WATCHLIST.map(w => w.sym).filter(s => s !== selected)
+      ];
+
+      for (const sym of orderedSymbols) {
+        try {
+          const hRes = await fetch(`${BACKEND}/stocks/yf/history?symbol=${sym}&period=3mo&interval=1d`);
+          const hJson = await hRes.json();
+          if (hJson.data && hJson.data.length > 0) {
+            newData[sym] = transformTimeSeries(hJson.data);
+            // Update price from history if not already set
+            if (!newPrices[sym]) {
+              const last  = hJson.data[hJson.data.length - 1];
+              const first = hJson.data[0];
+              newPrices[sym] = { price: last.close, prev: first.close };
+            }
+          } else {
+            throw new Error('No history data');
+          }
+        } catch (e) {
+          console.warn(`History fetch failed for ${sym}:`, e.message);
+          const base = BASE_PRICES[sym] || 100;
+          let p = base;
+          newData[sym] = Array.from({ length: 60 }, (_, i) => {
+            p = p * (1 + (Math.random() - 0.485) * 0.018);
+            return { day: i, price: +p.toFixed(2), rsi: 30 + Math.random() * 50, macd: 0, signal: 0, volume: 50e6 };
+          });
+          if (!newPrices[sym]) newPrices[sym] = { price: base, prev: base * 0.99 };
+        }
+
+        // Update UI after each stock loads
+        setPriceData({ ...newData });
+        setLivePrice({ ...newPrices });
+      }
+
+      setPriceData(newData);
+      setLivePrice(newPrices);
+    };
+
+    fetchAll();
+    // Refresh every 60 seconds
+    const interval = setInterval(fetchAll, 60000);
+    return () => clearInterval(interval);
   }, []);
 
   // Fetch news from backend
@@ -202,17 +299,25 @@ export default function Dashboard() {
   // Auto-scroll chat
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatMessages]);
 
-  // Live price simulation
+  // Refresh live prices every 30 seconds using yfinance
   useEffect(() => {
-    const t = setInterval(() => {
-      setLivePrice(prev => {
-        const next = { ...prev };
-        WATCHLIST.forEach(({ sym }) => {
-          if (next[sym]) next[sym] = { ...next[sym], price: +(next[sym].price * (1 + (Math.random()-0.499)*0.001)).toFixed(2) };
+    const refreshPrices = async () => {
+      try {
+        const symbols = WATCHLIST.map(w => w.sym).join(' ');
+        const res = await fetch(`${BACKEND}/stocks/yf/multi?symbols=${symbols}`);
+        const json = await res.json();
+        setLivePrice(prev => {
+          const next = { ...prev };
+          Object.entries(json).forEach(([sym, q]) => {
+            if (q.price > 0) next[sym] = { price: q.price, prev: q.prev_close };
+          });
+          return next;
         });
-        return next;
-      });
-    }, 2500);
+      } catch (e) {
+        console.warn('Price refresh failed:', e.message);
+      }
+    };
+    const t = setInterval(refreshPrices, 30000);
     return () => clearInterval(t);
   }, []);
 
