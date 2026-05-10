@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, Component } from "react";
-import { AreaChart, Area, BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from "recharts";
+import { AreaChart, Area, BarChart, Bar, LineChart, Line, ComposedChart, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine, Cell } from "recharts";
 
 /* ─── ERROR BOUNDARY ─────────────────────────────────────────── */
 class ErrorBoundary extends Component {
@@ -123,11 +123,63 @@ function transformTimeSeries(data) {
   return data.map((d,i)=>({
     day:i, date:d.time, price:d.close,
     open:d.open, high:d.high, low:d.low, volume:d.volume,
+    // Candlestick helpers
+    isUp: d.close >= d.open,
+    bodyHigh: Math.max(d.open, d.close),
+    bodyLow:  Math.min(d.open, d.close),
     rsi: computeRSI(closes.slice(0,i+1)) || 50,
     macd: i>=26 ? +macdLine[i].toFixed(3) : 0,
     signal: i>=35 ? +(sigLine[i-25]||0).toFixed(3) : 0,
   }));
 }
+
+/* ─── CUSTOM CANDLESTICK BAR ─────────────────────────────────── */
+const CandleBar = (props) => {
+  const { x, width, value, background, ...rest } = props;
+  const payload = rest.payload;
+  if (!payload) return null;
+
+  const { open, high, low, price: close, isUp, bodyHigh, bodyLow } = payload;
+  const color  = isUp ? "#4CAF8A" : "#C75B6A";
+  const range  = background?.height || 1;
+  const offset = background?.y || 0;
+  const priceRange = (background?.value?.[1] || close+1) - (background?.value?.[0] || close-1);
+
+  // Convert price to pixel Y using the chart's coordinate system
+  // We use yAxis scale from recharts via the background prop
+  const chartH = background?.height || 200;
+  const chartY = background?.y || 0;
+  const dataMax = background?.value?.[1] || high;
+  const dataMin = background?.value?.[0] || low;
+  const scale   = chartH / Math.max(dataMax - dataMin, 0.01);
+
+  const toY = p => chartY + chartH - (p - dataMin) * scale;
+
+  const candleW = Math.max(width * 0.7, 2);
+  const cx      = x + width / 2;
+
+  const wickTop    = toY(high);
+  const wickBottom = toY(low);
+  const bodyTop    = toY(bodyHigh);
+  const bodyBottom = toY(bodyLow);
+  const bodyH      = Math.max(Math.abs(bodyBottom - bodyTop), 1);
+
+  return (
+    <g>
+      {/* Wick */}
+      <line x1={cx} y1={wickTop} x2={cx} y2={wickBottom} stroke={color} strokeWidth={1} opacity={0.8}/>
+      {/* Body */}
+      <rect
+        x={cx - candleW/2} y={bodyTop}
+        width={candleW} height={bodyH}
+        fill={isUp ? color : color}
+        fillOpacity={isUp ? 0.9 : 0.9}
+        stroke={color} strokeWidth={0.5}
+        rx={1}
+      />
+    </g>
+  );
+};
 
 /* ─── COMPONENTS ─────────────────────────────────────────────── */
 const Spark = ({data, up, w=64, h=24}) => {
@@ -169,6 +221,29 @@ const ChartTip = ({active,payload,label}) => {
   );
 };
 
+/* ─── CANDLESTICK TOOLTIP ────────────────────────────────────── */
+const CandleTip = ({active, payload}) => {
+  if (!active||!payload?.length) return null;
+  const d = payload[0]?.payload;
+  if (!d) return null;
+  const color = d.isUp ? "var(--up)" : "var(--down)";
+  return (
+    <div style={{background:"var(--bg2)",border:`0.5px solid ${color}`,borderRadius:6,padding:"10px 14px",fontFamily:"var(--mono)",fontSize:10,color:"var(--text2)",minWidth:140}}>
+      <div style={{color:"var(--text)",marginBottom:6,fontSize:11}}>{d.date}</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"3px 12px"}}>
+        <span style={{color:"var(--text3)"}}>O</span><span style={{color:"var(--text)"}}>${d.open?.toFixed(2)}</span>
+        <span style={{color:"var(--up)"}}>H</span><span style={{color:"var(--up)"}}>${d.high?.toFixed(2)}</span>
+        <span style={{color:"var(--down)"}}>L</span><span style={{color:"var(--down)"}}>${d.low?.toFixed(2)}</span>
+        <span style={{color:"var(--text3)"}}>C</span><span style={{color}}>${d.price?.toFixed(2)}</span>
+      </div>
+      <div style={{marginTop:6,paddingTop:6,borderTop:"0.5px solid var(--border)",display:"flex",justifyContent:"space-between"}}>
+        <span style={{color:"var(--text3)"}}>Vol</span>
+        <span style={{color:"var(--text2)"}}>{(d.volume/1e6).toFixed(1)}M</span>
+      </div>
+    </div>
+  );
+};
+
 const SentimentBadge = ({label, score}) => {
   const s = parseFloat(score||0);
   const color = s>0.15?"var(--up)":s<-0.15?"var(--down)":"var(--text3)";
@@ -181,6 +256,167 @@ const SentimentBadge = ({label, score}) => {
 };
 
 /* ─── MAIN DASHBOARD ─────────────────────────────────────────── */
+/* ─── PURE SVG CANDLESTICK CHART ─────────────────────────────── */
+const CandlestickChart = ({ data }) => {
+  const [tooltip, setTooltip] = useState(null);
+  const [dims, setDims] = useState({ w: 800, h: 400 });
+  const svgRef = useRef(null); // attached to container div
+
+  useEffect(() => {
+    const el = svgRef.current?.parentElement;
+    if (!el) return;
+    // Set initial size immediately
+    const rect = el.getBoundingClientRect();
+    if (rect.width > 0) setDims({ w: rect.width, h: rect.height });
+    const ro = new ResizeObserver(entries => {
+      for (const e of entries) {
+        const { width, height } = e.contentRect;
+        if (width > 0 && height > 0) setDims({ w: width, h: height });
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  if (!data?.length) return null;
+
+  const pad = { top: 10, right: 60, bottom: 20, left: 10 };
+  const chartW = dims.w - pad.left - pad.right;
+  const chartH = dims.h - pad.top - pad.bottom;
+
+  const prices = data.flatMap(d => [d.high, d.low]).filter(Boolean);
+  const minP = Math.min(...prices) * 0.998;
+  const maxP = Math.max(...prices) * 1.002;
+  const priceRange = maxP - minP || 1;
+
+  const toY  = p  => pad.top + chartH - ((p - minP) / priceRange) * chartH;
+  const toX  = i  => pad.left + (i / (data.length - 1)) * chartW;
+  const candleW = Math.max(Math.floor(chartW / data.length) - 2, 2);
+
+  // Y axis ticks
+  const tickCount = 5;
+  const yTicks = Array.from({length: tickCount}, (_, i) =>
+    minP + (priceRange * i) / (tickCount - 1)
+  );
+
+  // X axis labels (every ~10 candles)
+  const xStep = Math.max(Math.floor(data.length / 6), 1);
+  const xLabels = data.filter((_, i) => i % xStep === 0);
+
+  return (
+    <div ref={svgRef} style={{position:"relative",width:"100%",height:"100%"}}>
+      <svg width={dims.w} height={dims.h} style={{overflow:"visible",display:"block"}}>
+        {/* Grid lines */}
+        {yTicks.map((p, i) => (
+          <g key={i}>
+            <line
+              x1={pad.left} y1={toY(p)}
+              x2={pad.left + chartW} y2={toY(p)}
+              stroke="rgba(255,255,255,0.04)" strokeWidth={1}
+              strokeDasharray="2 4"
+            />
+            <text
+              x={pad.left + chartW + 6} y={toY(p) + 4}
+              fill="var(--text3)" fontSize={9}
+              fontFamily="var(--mono)"
+            >
+              ${p.toFixed(0)}
+            </text>
+          </g>
+        ))}
+
+        {/* X axis labels */}
+        {xLabels.map((d, i) => (
+          <text key={i}
+            x={toX(data.indexOf(d))} y={pad.top + chartH + 14}
+            fill="var(--text3)" fontSize={8}
+            fontFamily="var(--mono)" textAnchor="middle"
+          >
+            {d.date?.slice(5)}
+          </text>
+        ))}
+
+        {/* Candles */}
+        {data.map((d, i) => {
+          if (!d.open || !d.high || !d.low || !d.price) return null;
+          const color  = d.isUp ? "#4CAF8A" : "#C75B6A";
+          const cx     = toX(i);
+          const wickX  = cx;
+          const bodyX  = cx - candleW / 2;
+          const bodyTop    = toY(d.bodyHigh || Math.max(d.open, d.price));
+          const bodyBottom = toY(d.bodyLow  || Math.min(d.open, d.price));
+          const bodyH  = Math.max(bodyBottom - bodyTop, 1);
+
+          return (
+            <g key={i}
+              onMouseEnter={e => setTooltip({ d, x: cx, y: bodyTop, i })}
+              onMouseLeave={() => setTooltip(null)}
+              style={{cursor:"crosshair"}}>
+              {/* Wick */}
+              <line
+                x1={wickX} y1={toY(d.high)}
+                x2={wickX} y2={toY(d.low)}
+                stroke={color} strokeWidth={1} opacity={0.7}
+              />
+              {/* Body */}
+              <rect
+                x={bodyX} y={bodyTop}
+                width={candleW} height={bodyH}
+                fill={d.isUp ? color : color}
+                fillOpacity={0.85}
+                stroke={color} strokeWidth={0.5}
+                rx={1}
+              />
+            </g>
+          );
+        })}
+
+        {/* Tooltip crosshair */}
+        {tooltip && (
+          <line
+            x1={toX(tooltip.i)} y1={pad.top}
+            x2={toX(tooltip.i)} y2={pad.top + chartH}
+            stroke="rgba(255,255,255,0.15)" strokeWidth={1}
+            strokeDasharray="3 3"
+          />
+        )}
+      </svg>
+
+      {/* Tooltip box */}
+      {tooltip && (
+        <div style={{
+          position:"absolute",
+          left: tooltip.i > data.length * 0.7 ? "auto" : toX(tooltip.i) + 12,
+          right: tooltip.i > data.length * 0.7 ? dims.w - toX(tooltip.i) + 12 : "auto",
+          top: Math.max(tooltip.y - 10, 10),
+          background:"var(--bg2)",
+          border:`0.5px solid ${tooltip.d.isUp ? "rgba(76,175,138,0.4)" : "rgba(199,91,106,0.4)"}`,
+          borderRadius:6, padding:"10px 14px",
+          fontFamily:"var(--mono)", fontSize:10,
+          color:"var(--text2)", minWidth:130,
+          pointerEvents:"none", zIndex:10,
+          boxShadow:"0 8px 24px rgba(0,0,0,0.4)",
+        }}>
+          <div style={{color:"var(--text)",marginBottom:5,fontSize:11,fontWeight:500}}>{tooltip.d.date}</div>
+          <div style={{display:"grid",gridTemplateColumns:"auto 1fr",gap:"2px 10px"}}>
+            <span style={{color:"var(--text3)"}}>O</span><span style={{color:"var(--text)"}}>${tooltip.d.open?.toFixed(2)}</span>
+            <span style={{color:"var(--up)"}}>H</span><span style={{color:"var(--up)"}}>${tooltip.d.high?.toFixed(2)}</span>
+            <span style={{color:"var(--down)"}}>L</span><span style={{color:"var(--down)"}}>${tooltip.d.low?.toFixed(2)}</span>
+            <span style={{color:tooltip.d.isUp?"var(--up)":"var(--down)"}}>C</span>
+            <span style={{color:tooltip.d.isUp?"var(--up)":"var(--down)",fontWeight:600}}>${tooltip.d.price?.toFixed(2)}</span>
+          </div>
+          {tooltip.d.volume && (
+            <div style={{marginTop:5,paddingTop:5,borderTop:"0.5px solid var(--border)",display:"flex",justifyContent:"space-between"}}>
+              <span style={{color:"var(--text3)"}}>Vol</span>
+              <span>{(tooltip.d.volume/1e6).toFixed(1)}M</span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 function DashboardInner({ user, onLogout }) {
   const [selected,    setSelected]    = useState("AAPL");
   const [pinnedSyms,  setPinnedSyms]  = useState(DEFAULT_PINS);
@@ -512,7 +748,7 @@ function DashboardInner({ user, onLogout }) {
         {tab==="chart"&&(
           <>
             <div style={{padding:"5px 14px",display:"flex",gap:3,borderBottom:"0.5px solid var(--border)"}}>
-              {["price","rsi","macd","volume"].map(c=>(
+              {["price","candle","rsi","macd","volume"].map(c=>(
                 <button key={c} onClick={()=>setActiveChart(c)}
                   style={{padding:"3px 10px",fontSize:8,fontFamily:"var(--mono)",background:activeChart===c?"var(--bg3)":"transparent",color:activeChart===c?"var(--accent)":"var(--text3)",border:`0.5px solid ${activeChart===c?"var(--border2)":"transparent"}`,borderRadius:3,cursor:"pointer",letterSpacing:"0.08em",textTransform:"uppercase"}}>
                   {c}
@@ -526,7 +762,9 @@ function DashboardInner({ user, onLogout }) {
                     <span style={{fontSize:10,color:"var(--text3)",fontFamily:"var(--mono)"}}>Loading {selected}...</span>
                   </div>
                 : <ResponsiveContainer width="100%" height="100%">
-                    {activeChart==="price"
+                    {activeChart==="candle"
+                      ? <CandlestickChart data={current}/>
+                      : activeChart==="price"
                       ? <AreaChart data={current} margin={{top:4,right:4,bottom:0,left:0}}>
                           <defs>
                             <linearGradient id="pg" x1="0" y1="0" x2="0" y2="1">
