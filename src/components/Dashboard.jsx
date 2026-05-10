@@ -435,7 +435,13 @@ function DashboardInner({ user, onLogout }) {
   const [activeChart,setActiveChart]= useState("price");
   const [tab,        setTab]        = useState("chart");
   const [newsTab,    setNewsTab]    = useState("market");
-  const [showNews,   setShowNews]   = useState(false);
+  const [showNews,      setShowNews]      = useState(false);
+  const [showPortfolio, setShowPortfolio] = useState(false);
+  const [portfolio,     setPortfolio]     = useState([]);
+  const [portfolioLoading, setPortfolioLoading] = useState(false);
+  const [addForm,       setAddForm]       = useState({symbol:'',quantity:'',avgCost:''});
+  const [addError,      setAddError]      = useState('');
+  const [addLoading,    setAddLoading]    = useState(false);
   const [loadingSyms,setLoadingSyms]= useState(new Set());
   const [timeRange,   setTimeRange]   = useState('3mo');
   const chatEndRef = useRef(null);
@@ -556,6 +562,83 @@ function DashboardInner({ user, onLogout }) {
     return()=>document.removeEventListener("mousedown",h);
   },[]);
 
+  // Fetch portfolio from backend
+  const fetchPortfolio = useCallback(async () => {
+    if (!user?.email) return;
+    setPortfolioLoading(true);
+    try {
+      const res  = await fetch(`${BACKEND}/user-details/${encodeURIComponent(user.email)}`);
+      const data = await res.json();
+      // Enrich with live prices
+      const holdings = data.portfolio || [];
+      const enriched = await Promise.all(holdings.map(async h => {
+        try {
+          const qRes  = await fetch(`${BACKEND}/stocks/yf/quote?symbol=${h.symbol}`);
+          const qData = await qRes.json();
+          const curr  = qData.price || h.avg_cost;
+          const cost  = h.avg_cost * h.quantity;
+          const val   = curr * h.quantity;
+          return {
+            ...h,
+            currentPrice: curr,
+            value:        +val.toFixed(2),
+            pnl:          +(val - cost).toFixed(2),
+            pnlPct:       +((val - cost) / cost * 100).toFixed(2),
+            changeDay:    qData.change_pct || 0,
+          };
+        } catch {
+          return { ...h, currentPrice: h.avg_cost, value: h.avg_cost * h.quantity, pnl: 0, pnlPct: 0, changeDay: 0 };
+        }
+      }));
+      setPortfolio(enriched);
+    } catch (e) {
+      console.error('Portfolio fetch error:', e);
+    }
+    setPortfolioLoading(false);
+  }, [user]);
+
+  // Add stock to portfolio
+  const addToPortfolio = async () => {
+    const symbol = addForm.symbol || addForm.symbolSearch?.toUpperCase();
+    const { quantity, avgCost } = addForm;
+    if (!symbol || !quantity || !avgCost) { setAddError('Please select a stock, quantity and buy price'); return; }
+    if (isNaN(quantity) || isNaN(avgCost)) { setAddError('Quantity and price must be numbers'); return; }
+    if (parseFloat(quantity) <= 0 || parseFloat(avgCost) <= 0) { setAddError('Quantity and price must be greater than 0'); return; }
+    setAddLoading(true); setAddError('');
+    try {
+      const res = await fetch(`${BACKEND}/user/${encodeURIComponent(user.email)}/portfolio`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ stock: { symbol: symbol, quantity: parseFloat(quantity), avg_cost: parseFloat(avgCost) } })
+      });
+      if (res.ok) {
+        setAddForm({symbol:'',symbolSearch:'',quantity:'',avgCost:'',symbolOpen:false});
+        await fetchPortfolio();
+      } else {
+        const d = await res.json();
+        setAddError(d.message || 'Failed to add stock');
+      }
+    } catch { setAddError('Connection error'); }
+    setAddLoading(false);
+  };
+
+  // Remove stock from portfolio
+  const removeFromPortfolio = async (symbol) => {
+    try {
+      await fetch(`${BACKEND}/portfolio/${encodeURIComponent(user.email)}/${symbol}`, { method: 'DELETE' });
+      await fetchPortfolio();
+    } catch {}
+  };
+
+  // Load portfolio when overlay opens
+  useEffect(() => { if (showPortfolio) fetchPortfolio(); }, [showPortfolio]);
+
+  // Auto-fill buy price when symbol selected and live price available
+  useEffect(() => {
+    if (addForm.symbol && livePrice[addForm.symbol] && !addForm.avgCost) {
+      setAddForm(p => ({...p, avgCost: livePrice[addForm.symbol].price.toFixed(2)}));
+    }
+  }, [addForm.symbol, livePrice]);
+
   const sendChat = useCallback(async()=>{
     if (!chatInput.trim()||chatLoading) return;
     const msg=chatInput.trim(); setChatInput("");
@@ -606,6 +689,11 @@ function DashboardInner({ user, onLogout }) {
         </div>
         <div style={{display:"flex",alignItems:"center",gap:12}}>
           <div style={{fontFamily:"var(--mono)",fontSize:9,color:"var(--text3)"}}>{new Date().toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"})}</div>
+          <button onClick={()=>setShowPortfolio(true)}
+            style={{display:"flex",alignItems:"center",gap:6,padding:"4px 12px",background:showPortfolio?"#C4922A":"transparent",border:`0.5px solid ${showPortfolio?"#C4922A":"var(--border2)"}`,borderRadius:4,cursor:"pointer",color:showPortfolio?"#000":"var(--text2)",fontFamily:"var(--mono)",fontSize:9,letterSpacing:"0.08em",transition:"all 0.2s"}}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+            PORTFOLIO
+          </button>
           <button onClick={()=>{setShowNews(true);setNewsTab("market");}}
             style={{display:"flex",alignItems:"center",gap:6,padding:"4px 12px",background:showNews?"var(--accent)":"transparent",border:`0.5px solid ${showNews?"var(--accent)":"var(--border2)"}`,borderRadius:4,cursor:"pointer",color:showNews?"#000":"var(--text2)",fontFamily:"var(--mono)",fontSize:9,letterSpacing:"0.08em",transition:"all 0.2s"}}>
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2z"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M4 10h16"/></svg>
@@ -852,6 +940,290 @@ function DashboardInner({ user, onLogout }) {
               </div>
             </div>
           </>
+        )}
+
+        {/* PORTFOLIO FULL PAGE OVERLAY */}
+        {showPortfolio&&(
+          <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"var(--bg)",zIndex:200,display:"flex",flexDirection:"column",animation:"fadeUp 0.2s ease"}}>
+            {/* Header */}
+            <div style={{background:"var(--bg2)",borderBottom:"0.5px solid var(--border)",padding:"12px 24px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div style={{display:"flex",alignItems:"center",gap:16}}>
+                <span style={{fontFamily:"var(--mono)",fontSize:13,fontWeight:600,color:"var(--text)",letterSpacing:"0.1em"}}>MY PORTFOLIO</span>
+                {portfolio.length>0&&(()=>{
+                  const total = portfolio.reduce((s,h)=>s+h.value,0);
+                  const totalPnl = portfolio.reduce((s,h)=>s+h.pnl,0);
+                  const totalPnlPct = portfolio.reduce((s,h)=>s+(h.avg_cost*h.quantity),0);
+                  const pnlPct = totalPnlPct ? (totalPnl/totalPnlPct*100).toFixed(2) : 0;
+                  const isUp = totalPnl >= 0;
+                  return (
+                    <div style={{display:"flex",gap:20,alignItems:"center"}}>
+                      <div>
+                        <div style={{fontSize:9,color:"var(--text3)",fontFamily:"var(--mono)"}}>TOTAL VALUE</div>
+                        <div style={{fontSize:18,fontFamily:"var(--mono)",fontWeight:700,color:"var(--text)"}}>${total.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+                      </div>
+                      <div>
+                        <div style={{fontSize:9,color:"var(--text3)",fontFamily:"var(--mono)"}}>TOTAL P&L</div>
+                        <div style={{fontSize:16,fontFamily:"var(--mono)",fontWeight:600,color:isUp?"var(--up)":"var(--down)"}}>
+                          {isUp?"+":""}{totalPnl.toFixed(2)} ({isUp?"+":""}{pnlPct}%)
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{fontSize:9,color:"var(--text3)",fontFamily:"var(--mono)"}}>HOLDINGS</div>
+                        <div style={{fontSize:16,fontFamily:"var(--mono)",fontWeight:600,color:"var(--text)"}}>{portfolio.length}</div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+              <button onClick={()=>setShowPortfolio(false)}
+                style={{background:"transparent",border:"0.5px solid var(--border2)",borderRadius:4,color:"var(--text2)",cursor:"pointer",padding:"6px 14px",fontSize:11,fontFamily:"var(--mono)",display:"flex",alignItems:"center",gap:6}}>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                CLOSE
+              </button>
+            </div>
+
+            {/* Body - two columns */}
+            <div style={{flex:1,overflow:"hidden",display:"grid",gridTemplateColumns:"1fr 340px",gap:0}}>
+
+              {/* Holdings table */}
+              <div style={{overflowY:"auto",padding:"20px 24px"}}>
+                {portfolioLoading?(
+                  Array.from({length:4}).map((_,i)=>(
+                    <div key={i} style={{height:60,background:"var(--bg3)",borderRadius:6,animation:"pulse 1.5s infinite",marginBottom:10}}/>
+                  ))
+                ):portfolio.length===0?(
+                  <div style={{textAlign:"center",padding:"60px 20px",color:"var(--text3)",fontFamily:"var(--mono)",fontSize:12,lineHeight:2}}>
+                    No stocks in portfolio yet.<br/>Add your first stock using the form →
+                  </div>
+                ):(
+                  <>
+                    {/* Table header */}
+                    <div style={{display:"grid",gridTemplateColumns:"1.5fr 1fr 1fr 1fr 1fr 1fr 60px",gap:8,padding:"8px 12px",marginBottom:4}}>
+                      {["SYMBOL","QTY","AVG COST","CURR PRICE","VALUE","P&L",""].map((h,i)=>(
+                        <div key={i} style={{fontSize:9,fontFamily:"var(--mono)",color:"var(--text3)",letterSpacing:"0.08em",textAlign:i>1?"right":"left"}}>{h}</div>
+                      ))}
+                    </div>
+                    {/* Holdings rows */}
+                    {portfolio.map((h,i)=>{
+                      const isUp = h.pnl >= 0;
+                      return (
+                        <div key={i} style={{display:"grid",gridTemplateColumns:"1.5fr 1fr 1fr 1fr 1fr 1fr 60px",gap:8,padding:"12px",background:"var(--bg2)",borderRadius:8,marginBottom:8,border:"0.5px solid var(--border)",animation:`fadeUp 0.3s ease ${i*0.05}s both`,alignItems:"center"}}>
+                          <div>
+                            <div style={{fontFamily:"var(--mono)",fontWeight:600,fontSize:13,color:"var(--text)"}}>{h.symbol}</div>
+                            <div style={{fontSize:9,color:h.changeDay>=0?"var(--up)":"var(--down)",fontFamily:"var(--mono)"}}>{h.changeDay>=0?"+":""}{h.changeDay?.toFixed(2)}% today</div>
+                          </div>
+                          <div style={{textAlign:"right",fontFamily:"var(--mono)",fontSize:12,color:"var(--text2)"}}>{h.quantity}</div>
+                          <div style={{textAlign:"right",fontFamily:"var(--mono)",fontSize:12,color:"var(--text2)"}}>${h.avg_cost?.toFixed(2)}</div>
+                          <div style={{textAlign:"right",fontFamily:"var(--mono)",fontSize:12,color:"var(--text)"}}>${h.currentPrice?.toFixed(2)}</div>
+                          <div style={{textAlign:"right",fontFamily:"var(--mono)",fontSize:12,color:"var(--text)",fontWeight:600}}>${h.value?.toLocaleString()}</div>
+                          <div style={{textAlign:"right"}}>
+                            <div style={{fontFamily:"var(--mono)",fontSize:12,color:isUp?"var(--up)":"var(--down)",fontWeight:600}}>{isUp?"+":""}{h.pnl?.toFixed(2)}</div>
+                            <div style={{fontFamily:"var(--mono)",fontSize:10,color:isUp?"var(--up)":"var(--down)"}}>{isUp?"+":""}{h.pnlPct?.toFixed(2)}%</div>
+                          </div>
+                          <div style={{display:"flex",justifyContent:"center"}}>
+                            <button onClick={()=>removeFromPortfolio(h.symbol)}
+                              style={{background:"none",border:"0.5px solid var(--border)",borderRadius:4,color:"var(--text3)",cursor:"pointer",padding:"4px 8px",fontSize:10,fontFamily:"var(--mono)",transition:"all 0.15s"}}
+                              onMouseEnter={e=>{e.target.style.borderColor="var(--down)";e.target.style.color="var(--down)";}}
+                              onMouseLeave={e=>{e.target.style.borderColor="var(--border)";e.target.style.color="var(--text3)";}}>
+                              ✕
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+              </div>
+
+              {/* Right panel - Add stock + AI analysis */}
+              <div style={{borderLeft:"0.5px solid var(--border)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+                {/* Add stock form */}
+                <div style={{padding:"20px 20px 16px",borderBottom:"0.5px solid var(--border)"}}>
+                  <div style={{fontSize:9,fontFamily:"var(--mono)",color:"var(--text3)",letterSpacing:"0.1em",marginBottom:14}}>ADD STOCK</div>
+                  {addError&&<div style={{fontSize:11,color:"var(--down)",marginBottom:10,fontFamily:"var(--mono)"}}>{addError}</div>}
+                  <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                    <div style={{position:"relative"}}>
+                      <div style={{fontSize:9,color:"var(--text3)",fontFamily:"var(--mono)",letterSpacing:"0.08em",marginBottom:4}}>SYMBOL</div>
+                      <input value={addForm.symbolSearch||addForm.symbol}
+                        onChange={e=>setAddForm(p=>({...p,symbolSearch:e.target.value,symbol:""}))}
+                        onFocus={e=>{e.target.style.borderColor="var(--accent)";setAddForm(p=>({...p,symbolOpen:true}));}}
+                        onBlur={e=>{e.target.style.borderColor="var(--border2)";setTimeout(()=>setAddForm(p=>({...p,symbolOpen:false})),150);}}
+                        placeholder="Search symbol or name..."
+                        style={{width:"100%",background:"var(--bg3)",border:"0.5px solid var(--border2)",borderRadius:6,padding:"8px 12px",color:"var(--text)",fontSize:12,fontFamily:"var(--mono)",outline:"none"}}/>
+                      {/* Dropdown */}
+                      {addForm.symbolOpen&&(()=>{
+                        const q=(addForm.symbolSearch||"").toLowerCase();
+                        if(q.length===0) return null; // only show when typing
+                        const matches=ALL_STOCKS.filter(s=>
+                          s.sym.toLowerCase().includes(q)||s.name.toLowerCase().includes(q)
+                        ).slice(0,12);
+                        return matches.length>0?(
+                          <div style={{position:"absolute",top:"100%",left:0,right:0,background:"var(--bg3)",border:"0.5px solid var(--border2)",borderRadius:"0 0 6px 6px",zIndex:50,maxHeight:200,overflowY:"auto",boxShadow:"0 8px 24px rgba(0,0,0,0.4)"}}>
+                            {matches.map(s=>(
+                              <div key={s.sym}
+                                onMouseDown={async ()=>{
+                                  let price = livePrice[s.sym]?.price;
+                                  // Fetch live price if not cached
+                                  if (!price) {
+                                    try {
+                                      const r = await fetch(`${BACKEND}/stocks/yf/quote?symbol=${s.sym}`);
+                                      const d = await r.json();
+                                      price = d.price;
+                                      if (price) setLivePrice(prev=>({...prev,[s.sym]:{price,prev:d.prev_close||price}}));
+                                    } catch {}
+                                  }
+                                  setAddForm(p=>({
+                                    ...p,
+                                    symbol:s.sym,
+                                    symbolSearch:s.sym,
+                                    symbolOpen:false,
+                                    avgCost: price ? price.toFixed(2) : ''
+                                  }));
+                                }}
+                                style={{padding:"8px 12px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:"0.5px solid var(--border)"}}
+                                onMouseEnter={e=>e.currentTarget.style.background="var(--bg4)"}
+                                onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                                <div>
+                                  <span style={{fontFamily:"var(--mono)",fontSize:12,fontWeight:600,color:"var(--text)"}}>{s.sym}</span>
+                                  <span style={{fontSize:10,color:"var(--text2)",marginLeft:8}}>{s.name}</span>
+                                </div>
+                                <span style={{fontSize:8,padding:"2px 5px",background:`${SECTOR_COLORS[s.sector]||"#5B8DEF"}20`,color:SECTOR_COLORS[s.sector]||"#5B8DEF",borderRadius:3,fontFamily:"var(--mono)"}}>{s.sector}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ):null;
+                      })()}
+                      {/* Show selected symbol */}
+                      {addForm.symbol&&(
+                        <div style={{marginTop:4,fontSize:10,color:"var(--accent)",fontFamily:"var(--mono)"}}>
+                          Selected: <strong>{addForm.symbol}</strong>
+                          <button onClick={()=>setAddForm(p=>({...p,symbol:"",symbolSearch:""}))}
+                            style={{background:"none",border:"none",color:"var(--text3)",cursor:"pointer",marginLeft:6,fontSize:10}}>✕</button>
+                        </div>
+                      )}
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                      <div>
+                        <div style={{fontSize:9,color:"var(--text3)",fontFamily:"var(--mono)",letterSpacing:"0.08em",marginBottom:4}}>QUANTITY</div>
+                        <input value={addForm.quantity} onChange={e=>setAddForm(p=>({...p,quantity:e.target.value}))}
+                          placeholder="e.g. 10" type="number" min="0"
+                          style={{width:"100%",background:"var(--bg3)",border:"0.5px solid var(--border2)",borderRadius:6,padding:"8px 12px",color:"var(--text)",fontSize:12,fontFamily:"var(--mono)",outline:"none"}}
+                          onFocus={e=>e.target.style.borderColor="var(--accent)"}
+                          onBlur={e=>e.target.style.borderColor="var(--border2)"}/>
+                      </div>
+                      <div>
+                        <div style={{fontSize:9,color:"var(--text3)",fontFamily:"var(--mono)",letterSpacing:"0.08em",marginBottom:4}}>BUY PRICE $</div>
+                        <div style={{position:"relative"}}>
+                        <input value={addForm.avgCost} onChange={e=>setAddForm(p=>({...p,avgCost:e.target.value}))}
+                          placeholder="Market price" type="number" min="0" step="0.01"
+                          style={{width:"100%",background:"var(--bg3)",border:"0.5px solid var(--border2)",borderRadius:6,padding:"8px 12px",color:"var(--text)",fontSize:12,fontFamily:"var(--mono)",outline:"none"}}
+                          onFocus={e=>e.target.style.borderColor="var(--accent)"}
+                          onBlur={e=>e.target.style.borderColor="var(--border2)"}/>
+                        {addForm.symbol&&livePrice[addForm.symbol]&&(
+                          <button
+                            onClick={()=>setAddForm(p=>({...p,avgCost:livePrice[p.symbol].price.toFixed(2)}))}
+                            style={{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",background:"var(--accent2)",border:"none",borderRadius:3,color:"#fff",fontSize:8,fontFamily:"var(--mono)",padding:"2px 5px",cursor:"pointer",letterSpacing:"0.06em"}}>
+                            USE LIVE
+                          </button>
+                        )}
+                      </div>
+                      </div>
+                    </div>
+                    {/* Live calculation */}
+                    {addForm.quantity && addForm.avgCost && parseFloat(addForm.avgCost) > 0 && (
+                      <div style={{background:"var(--bg3)",border:"0.5px solid var(--border2)",borderRadius:6,padding:"10px 12px"}}>
+                        <div style={{fontSize:9,color:"var(--text3)",fontFamily:"var(--mono)",letterSpacing:"0.08em",marginBottom:6}}>ORDER SUMMARY</div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4}}>
+                          <div style={{fontSize:10,color:"var(--text2)",fontFamily:"var(--mono)"}}>Symbol</div>
+                          <div style={{fontSize:10,color:"var(--text)",fontFamily:"var(--mono)",textAlign:"right",fontWeight:600}}>{addForm.symbol||addForm.symbolSearch||"—"}</div>
+                          <div style={{fontSize:10,color:"var(--text2)",fontFamily:"var(--mono)"}}>Quantity</div>
+                          <div style={{fontSize:10,color:"var(--text)",fontFamily:"var(--mono)",textAlign:"right"}}>{addForm.quantity}</div>
+                          <div style={{fontSize:10,color:"var(--text2)",fontFamily:"var(--mono)"}}>Price per share</div>
+                          <div style={{fontSize:10,color:"var(--text)",fontFamily:"var(--mono)",textAlign:"right"}}>${parseFloat(addForm.avgCost||0).toFixed(2)}</div>
+                          <div style={{height:1,background:"var(--border)",gridColumn:"1/-1",margin:"4px 0"}}/>
+                          <div style={{fontSize:11,color:"var(--text2)",fontFamily:"var(--mono)",fontWeight:600}}>Total Cost</div>
+                          <div style={{fontSize:13,color:"var(--accent)",fontFamily:"var(--mono)",textAlign:"right",fontWeight:700}}>
+                            ${(parseFloat(addForm.quantity||0)*parseFloat(addForm.avgCost||0)).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}
+                          </div>
+                          {/* Show current market price comparison if available */}
+                          {livePrice[addForm.symbol||addForm.symbolSearch]&&(()=>{
+                            const _sym = addForm.symbol||addForm.symbolSearch;
+                            const mktPrice = livePrice[_sym].price;
+                            const mktTotal = parseFloat(addForm.quantity||0)*mktPrice;
+                            const buyPrice = parseFloat(addForm.avgCost||0);
+                            const diff = buyPrice - mktPrice;
+                            const diffPct = mktPrice ? (diff/mktPrice*100).toFixed(2) : 0;
+                            return (
+                              <>
+                                <div style={{fontSize:10,color:"var(--text2)",fontFamily:"var(--mono)"}}>Market price now</div>
+                                <div style={{fontSize:10,color:"var(--text)",fontFamily:"var(--mono)",textAlign:"right"}}>${mktPrice.toFixed(2)}</div>
+                                <div style={{fontSize:10,color:"var(--text2)",fontFamily:"var(--mono)"}}>vs Market value</div>
+                                <div style={{fontSize:10,color:diff>0?"var(--down)":"var(--up)",fontFamily:"var(--mono)",textAlign:"right"}}>
+                                  ${mktTotal.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}
+                                  <span style={{fontSize:9,marginLeft:4}}>({diff>0?"+":""}{diffPct}%)</span>
+                                </div>
+                              </>
+                            );
+                          })()}
+                        </div>
+                      </div>
+                    )}
+                    <button onClick={addToPortfolio} disabled={addLoading}
+                      style={{padding:"10px",background:addLoading?"var(--bg3)":"var(--accent)",color:addLoading?"var(--text3)":"#000",border:"none",borderRadius:6,fontSize:10,fontFamily:"var(--mono)",fontWeight:600,letterSpacing:"0.1em",cursor:addLoading?"default":"pointer",transition:"all 0.2s"}}>
+                      {addLoading?"ADDING...":"+ ADD TO PORTFOLIO"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Allocation breakdown */}
+                {portfolio.length>0&&(()=>{
+                  const total = portfolio.reduce((s,h)=>s+h.value,0);
+                  const sorted = [...portfolio].sort((a,b)=>b.value-a.value);
+                  const colors = ["#5B8DEF","#4CAF8A","#C4922A","#C75B6A","#A78BFA","#38BDF8","#FB923C","#F472B6"];
+                  return (
+                    <div style={{padding:"16px 20px",borderBottom:"0.5px solid var(--border)"}}>
+                      <div style={{fontSize:9,fontFamily:"var(--mono)",color:"var(--text3)",letterSpacing:"0.1em",marginBottom:12}}>ALLOCATION</div>
+                      {/* Bar chart */}
+                      <div style={{height:8,borderRadius:4,overflow:"hidden",display:"flex",marginBottom:12}}>
+                        {sorted.map((h,i)=>(
+                          <div key={i} style={{height:"100%",width:`${(h.value/total*100)}%`,background:colors[i%colors.length]}} title={`${h.symbol}: ${(h.value/total*100).toFixed(1)}%`}/>
+                        ))}
+                      </div>
+                      {/* Legend */}
+                      <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                        {sorted.map((h,i)=>(
+                          <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                            <div style={{display:"flex",alignItems:"center",gap:6}}>
+                              <div style={{width:8,height:8,borderRadius:2,background:colors[i%colors.length],flexShrink:0}}/>
+                              <span style={{fontFamily:"var(--mono)",fontSize:10,color:"var(--text)"}}>{h.symbol}</span>
+                            </div>
+                            <span style={{fontFamily:"var(--mono)",fontSize:10,color:"var(--text2)"}}>{(h.value/total*100).toFixed(1)}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* AI Analysis button */}
+                <div style={{padding:"16px 20px"}}>
+                  <div style={{fontSize:9,fontFamily:"var(--mono)",color:"var(--text3)",letterSpacing:"0.1em",marginBottom:10}}>AI ANALYSIS</div>
+                  <button onClick={()=>{setShowPortfolio(false);setChatInput("Analyze my portfolio risk and suggest rebalancing");}}
+                    style={{width:"100%",padding:"10px",background:"var(--bg3)",border:"0.5px solid var(--border2)",borderRadius:6,color:"var(--text2)",fontSize:10,fontFamily:"var(--mono)",cursor:"pointer",letterSpacing:"0.06em",textAlign:"left",transition:"all 0.15s"}}
+                    onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--accent)";e.currentTarget.style.color="var(--accent)";}}
+                    onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--border2)";e.currentTarget.style.color="var(--text2)";}}>
+                    🤖 Analyze portfolio risk →
+                  </button>
+                  <button onClick={()=>{setShowPortfolio(false);setChatInput("Check my portfolio for alerts");}}
+                    style={{width:"100%",marginTop:6,padding:"10px",background:"var(--bg3)",border:"0.5px solid var(--border2)",borderRadius:6,color:"var(--text2)",fontSize:10,fontFamily:"var(--mono)",cursor:"pointer",letterSpacing:"0.06em",textAlign:"left",transition:"all 0.15s"}}
+                    onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--warn)";e.currentTarget.style.color="var(--warn)";}}
+                    onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--border2)";e.currentTarget.style.color="var(--text2)";}}>
+                    ⚡ Check portfolio alerts →
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* NEWS FULL PAGE OVERLAY — triggered by top bar button */}
