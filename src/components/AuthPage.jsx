@@ -50,6 +50,15 @@ const GridBg = () => (
   </div>
 );
 
+/* Hash password using browser's built-in Web Crypto API */
+async function hashPassword(password) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 export default function AuthPage({ onLogin }) {
   const [mode,     setMode]     = useState("login");
   const [loading,  setLoading]  = useState(false);
@@ -69,10 +78,11 @@ export default function AuthPage({ onLogin }) {
     if (!email || !password) { setError("Please fill in all fields"); return; }
     setLoading(true); setError(""); setSuccess("");
     try {
-      // Step 1: Login
+      // Step 1: Hash password before sending (never send plaintext)
+      const hashedPassword = await hashPassword(password);
       const res  = await fetch(`${BACKEND}/login`, {
         method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ email, password: hashedPassword })
       });
       const data = await res.json();
       if (!res.ok) { setError(data.message || "Login failed"); setLoading(false); return; }
@@ -112,10 +122,12 @@ export default function AuthPage({ onLogin }) {
     if (signPass.length < 6) { setError("Password must be at least 6 characters"); return; }
     setLoading(true); setError(""); setSuccess("");
     try {
+      // Hash password before sending
+      const hashedSignPass = await hashPassword(signPass);
       const res  = await fetch(`${BACKEND}/signup`, {
         method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({
-          username: name, email: signEmail, password: signPass,
+          username: name, email: signEmail, password: hashedSignPass,
           gender: "", age: "",
           investmentGoal: goal, riskAppetite: risk, timeHorizon: horizon,
         })
@@ -126,9 +138,10 @@ export default function AuthPage({ onLogin }) {
         // Auto-login after signup
         setTimeout(async () => {
           try {
+            const hashedAutoPass = await hashPassword(signPass);
             const loginRes = await fetch(`${BACKEND}/login`, {
               method:"POST", headers:{"Content-Type":"application/json"},
-              body: JSON.stringify({ email: signEmail, password: signPass })
+              body: JSON.stringify({ email: signEmail, password: hashedAutoPass })
             });
             const loginData = await loginRes.json();
             if (loginRes.ok) {
