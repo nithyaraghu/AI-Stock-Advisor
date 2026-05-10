@@ -437,6 +437,7 @@ function DashboardInner({ user, onLogout }) {
   const [newsTab,    setNewsTab]    = useState("market");
   const [showNews,   setShowNews]   = useState(false);
   const [loadingSyms,setLoadingSyms]= useState(new Set());
+  const [timeRange,   setTimeRange]   = useState('3mo');
   const chatEndRef = useRef(null);
   const searchRef  = useRef(null);
 
@@ -449,14 +450,23 @@ function DashboardInner({ user, onLogout }) {
     setPinnedSyms(prev=>prev.includes(sym)?prev.filter(s=>s!==sym):[...prev,sym]);
   },[]);
 
-  const loadStock = useCallback(async sym=>{
-    if (priceData[sym]) return;
+  const loadStock = useCallback(async (sym, period='3mo')=>{
+    const cacheKey = `${sym}_${period}`;
+    if (priceData[cacheKey]) {
+      // Already cached for this symbol+period - use it
+      if (priceData[sym] === priceData[cacheKey]) return;
+      setPriceData(prev=>({...prev,[sym]:prev[cacheKey]}));
+      return;
+    }
     setLoadingSyms(prev=>new Set([...prev,sym]));
     try {
-      const res  = await fetch(`${BACKEND}/stocks/yf/history?symbol=${sym}&period=3mo&interval=1d`);
+      const interval = period==='5d' ? '1h' : period==='1y'||period==='2y' ? '1wk' : '1d';
+      const res  = await fetch(`${BACKEND}/stocks/yf/history?symbol=${sym}&period=${period}&interval=${interval}`);
       const json = await res.json();
       if (json.data?.length>0) {
-        setPriceData(prev=>({...prev,[sym]:transformTimeSeries(json.data)}));
+        const transformed = transformTimeSeries(json.data);
+        const cacheKey2 = `${sym}_${period}`;
+        setPriceData(prev=>({...prev,[sym]:transformed,[cacheKey2]:transformed}));
         const last=json.data[json.data.length-1], first=json.data[0];
         setLivePrice(prev=>({...prev,[sym]:{price:last.close,prev:first.close}}));
       } else throw new Error("No data");
@@ -472,7 +482,13 @@ function DashboardInner({ user, onLogout }) {
   // Load pinned stocks
   useEffect(()=>{pinnedSyms.forEach(s=>loadStock(s));},[pinnedSyms]);
   // Load selected stock
-  useEffect(()=>{loadStock(selected);},[selected]);
+  useEffect(()=>{loadStock(selected, timeRange);},[selected, timeRange]);
+
+  // Reload when time range changes
+  const handleTimeRange = (range) => {
+    setTimeRange(range);
+    loadStock(selected, range);
+  };
 
   // Live quotes every 30s
   useEffect(()=>{
@@ -747,13 +763,23 @@ function DashboardInner({ user, onLogout }) {
         {/* CHART TAB */}
         {tab==="chart"&&(
           <>
-            <div style={{padding:"5px 14px",display:"flex",gap:3,borderBottom:"0.5px solid var(--border)"}}>
-              {["price","candle","rsi","macd","volume"].map(c=>(
-                <button key={c} onClick={()=>setActiveChart(c)}
-                  style={{padding:"3px 10px",fontSize:8,fontFamily:"var(--mono)",background:activeChart===c?"var(--bg3)":"transparent",color:activeChart===c?"var(--accent)":"var(--text3)",border:`0.5px solid ${activeChart===c?"var(--border2)":"transparent"}`,borderRadius:3,cursor:"pointer",letterSpacing:"0.08em",textTransform:"uppercase"}}>
-                  {c}
-                </button>
-              ))}
+            <div style={{padding:"5px 14px",display:"flex",gap:3,borderBottom:"0.5px solid var(--border)",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{display:"flex",gap:3}}>
+                {["price","candle","rsi","macd","volume"].map(c=>(
+                  <button key={c} onClick={()=>setActiveChart(c)}
+                    style={{padding:"3px 10px",fontSize:8,fontFamily:"var(--mono)",background:activeChart===c?"var(--bg3)":"transparent",color:activeChart===c?"var(--accent)":"var(--text3)",border:`0.5px solid ${activeChart===c?"var(--border2)":"transparent"}`,borderRadius:3,cursor:"pointer",letterSpacing:"0.08em",textTransform:"uppercase"}}>
+                    {c}
+                  </button>
+                ))}
+              </div>
+              <div style={{display:"flex",gap:2}}>
+                {[["5d","5D"],["1mo","1M"],["3mo","3M"],["6mo","6M"],["1y","1Y"],["2y","2Y"]].map(([val,label])=>(
+                  <button key={val} onClick={()=>handleTimeRange(val)}
+                    style={{padding:"3px 8px",fontSize:8,fontFamily:"var(--mono)",background:timeRange===val?"var(--accent)":"transparent",color:timeRange===val?"#000":"var(--text3)",border:`0.5px solid ${timeRange===val?"var(--accent)":"transparent"}`,borderRadius:3,cursor:"pointer",letterSpacing:"0.06em"}}>
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
             <div style={{flex:1,padding:"8px 8px 0",minHeight:0}}>
               {isLoading
