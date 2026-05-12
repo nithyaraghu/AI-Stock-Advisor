@@ -37,6 +37,41 @@ const Styles = () => (
     @keyframes spin{to{transform:rotate(360deg)}}
     @keyframes slideIn{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:translateX(0)}}
     @keyframes ticker{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
+    @keyframes scaleIn{from{opacity:0;transform:scale(0.95)}to{opacity:1;transform:scale(1)}}
+    @keyframes slideRight{from{opacity:0;transform:translateX(-20px)}to{opacity:1;transform:translateX(0)}}
+    @keyframes glow{0%,100%{box-shadow:0 0 8px var(--accent)}50%{box-shadow:0 0 16px var(--accent),0 0 32px rgba(91,141,239,0.3)}}
+
+    /* ── MOBILE NAV — hidden on desktop ── */
+    .mobile-nav { display:none; }
+    .desktop-only { display:flex; }
+
+    /* ── TABLET (900px - 1200px) ── */
+    @media (max-width:1200px) and (min-width:700px) {
+      .main-grid { grid-template-columns: clamp(160px,14vw,200px) 1fr clamp(220px,24vw,280px) !important; }
+    }
+    @media (max-width:900px) and (min-width:601px) {
+      .main-grid { grid-template-columns: 0px 1fr clamp(220px,32vw,280px) !important; }
+      .watchlist-panel { display:none !important; }
+      .chart-panel { border-left:none !important; }
+    }
+    /* ── MOBILE (≤600px) ── */
+    @media (max-width:480px) {
+      .main-grid {
+        grid-template-columns: 1fr !important;
+        grid-template-rows: clamp(44px,4vh,56px) 1fr 56px 28px !important;
+      }
+      .watchlist-panel { display:none !important; }
+      .chat-panel { display:none !important; }
+      .mobile-nav { display:flex !important; }
+      .desktop-only { display:none !important; }
+      .topbar-indices { display:none !important; }
+    }
+
+    /* ── INTERACTIVE STATES ── */
+    button { transition: all 0.15s ease !important; }
+    button:active { transform: scale(0.97) !important; }
+    .card-hover:hover { border-color: var(--border2) !important; transform: translateY(-1px); transition: all 0.2s ease; }
+    .pulse-dot { animation: glow 2s infinite; }
   `}</style>
 );
 
@@ -443,6 +478,10 @@ function DashboardInner({ user, onLogout }) {
   const [addError,      setAddError]      = useState('');
   const [addLoading,    setAddLoading]    = useState(false);
   const [loadingSyms,setLoadingSyms]= useState(new Set());
+  const [mobilePanel, setMobilePanel] = useState("chart");
+  const [showWatchlist, setShowWatchlist] = useState(false);
+  // Detect actual mobile device - not just window width
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 480;
   const [timeRange,   setTimeRange]   = useState('3mo');
   const chatEndRef = useRef(null);
   const searchRef  = useRef(null);
@@ -662,12 +701,12 @@ function DashboardInner({ user, onLogout }) {
   const isLoading = loadingSyms.has(selected);
 
   return (
-    <div style={{
+    <div className="main-grid" style={{
       fontFamily:"var(--sans)",background:"var(--bg)",
       width:"100vw",height:"100vh",
       display:"grid",
       gridTemplateColumns:"clamp(200px,17vw,260px) 1fr clamp(280px,23vw,360px)",
-      gridTemplateRows:"clamp(44px,4vh,56px) 1fr 28px",
+      gridTemplateRows:isMobile?"clamp(44px,4vh,56px) 1fr 56px 28px":"clamp(44px,4vh,56px) 1fr 28px",
       overflow:"hidden"
     }}>
       <Styles/>
@@ -679,7 +718,7 @@ function DashboardInner({ user, onLogout }) {
           <span style={{fontFamily:"var(--mono)",fontSize:"clamp(10px,0.9vw,13px)",fontWeight:600,color:"var(--text)",letterSpacing:"0.12em"}}>MARKET INTELLIGENCE</span>
           <span style={{fontSize:8,color:"var(--text3)",fontFamily:"var(--mono)",padding:"2px 5px",border:"0.5px solid var(--border2)",borderRadius:2}}>LIVE</span>
         </div>
-        <div style={{display:"flex",gap:20}}>
+        <div className="topbar-indices" style={{display:"flex",gap:20}}>
           {[["S&P 500","+0.87%",true],["NASDAQ","+1.24%",true],["DOW","-0.12%",false],["VIX","14.82",false],["10Y","4.38%",false]].map(([n,v,u])=>(
             <div key={n} style={{textAlign:"center"}}>
               <div style={{fontSize:8,color:"var(--text3)",fontFamily:"var(--mono)"}}>{n}</div>
@@ -716,7 +755,7 @@ function DashboardInner({ user, onLogout }) {
       </div>
 
       {/* LEFT — WATCHLIST */}
-      <div style={{background:"var(--bg2)",borderRight:"0.5px solid var(--border)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      <div className="watchlist-panel" style={{background:"var(--bg2)",borderRight:"0.5px solid var(--border)",display:"flex",flexDirection:"column",overflow:"hidden",gridRow:2}}>
         {/* Search */}
         <div ref={searchRef} style={{padding:"10px",borderBottom:"0.5px solid var(--border)",position:"relative"}}>
           <div style={{display:"flex",alignItems:"center",gap:8,background:"var(--bg3)",border:`0.5px solid ${searchOpen?"var(--accent)":"var(--border2)"}`,borderRadius:6,padding:"7px 10px",transition:"border-color 0.2s"}}>
@@ -777,7 +816,7 @@ function DashboardInner({ user, onLogout }) {
             const isLoad=loadingSyms.has(sym);
             return (
               <div key={sym} onClick={()=>setSelected(sym)}
-                style={{padding:"8px 12px",cursor:"pointer",borderLeft:`2px solid ${isSel?"var(--accent)":"transparent"}`,background:isSel?"rgba(91,141,239,0.05)":"transparent",transition:"all 0.15s",borderBottom:"0.5px solid var(--border)",animation:"slideIn 0.3s ease"}}>
+                style={{padding:"8px 12px",cursor:"pointer",borderLeft:`2px solid ${isSel?"var(--accent)":"transparent"}`,background:isSel?"rgba(91,141,239,0.05)":"transparent",transition:"all 0.15s",borderBottom:"0.5px solid var(--border)",animation:"slideIn 0.3s ease",transition:"background 0.2s, border-color 0.2s"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{display:"flex",alignItems:"center",gap:5}}>
@@ -792,7 +831,7 @@ function DashboardInner({ user, onLogout }) {
                     {isLoad
                       ? <div style={{width:44,height:11,background:"var(--bg3)",borderRadius:3,animation:"pulse 1.5s infinite",marginBottom:3}}/>
                       : <>
-                          <div style={{fontSize:"clamp(11px,0.9vw,13px)",fontFamily:"var(--mono)",color:"var(--text)"}}>${lp.price?.toFixed(2)||"—"}</div>
+                          <div style={{fontSize:"clamp(11px,0.9vw,13px)",fontFamily:"var(--mono)",color:"var(--text)",transition:"color 0.5s ease"}}>${lp.price?.toFixed(2)||"—"}</div>
                           <div style={{fontSize:9,fontFamily:"var(--mono)",color:up?"var(--up)":"var(--down)"}}>{up?"▲":"▼"}{Math.abs(chg)}%</div>
                         </>
                     }
@@ -825,7 +864,7 @@ function DashboardInner({ user, onLogout }) {
       </div>
 
       {/* CENTER — CHART + NEWS */}
-      <div style={{display:"flex",flexDirection:"column",overflow:"hidden",borderRight:"0.5px solid var(--border)"}}>
+      <div className="chart-panel" style={{display:"flex",flexDirection:"column",overflow:"hidden",borderRight:"0.5px solid var(--border)",position:"relative"}}>
         {/* Header */}
         <div style={{padding:"10px 16px 8px",borderBottom:"0.5px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
           <div style={{display:"flex",alignItems:"baseline",gap:10}}>
@@ -1226,6 +1265,116 @@ function DashboardInner({ user, onLogout }) {
           </div>
         )}
 
+        {/* MOBILE WATCHLIST OVERLAY */}
+        {showWatchlist&&(
+          <div style={{position:"fixed",top:0,left:0,right:0,bottom:56,background:"var(--bg2)",zIndex:500,display:"flex",flexDirection:"column",animation:"slideRight 0.25s ease"}}>
+            <div style={{padding:"12px 16px",borderBottom:"0.5px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <span style={{fontFamily:"var(--mono)",fontSize:12,fontWeight:600,color:"var(--text)",letterSpacing:"0.1em"}}>WATCHLIST ({pinnedSyms.length})</span>
+              <button onClick={()=>setShowWatchlist(false)}
+                style={{background:"transparent",border:"0.5px solid var(--border2)",borderRadius:4,color:"var(--text2)",cursor:"pointer",padding:"5px 12px",fontSize:10,fontFamily:"var(--mono)"}}>
+                CLOSE
+              </button>
+            </div>
+            {/* Search */}
+            <div style={{padding:"10px"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,background:"var(--bg3)",border:"0.5px solid var(--border2)",borderRadius:6,padding:"7px 10px"}}>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" strokeWidth="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                <input value={searchQuery} onChange={e=>{setSearchQuery(e.target.value);setSearchOpen(true);}} onFocus={()=>setSearchOpen(true)}
+                  placeholder="Search any stock to pin..."
+                  style={{background:"transparent",border:"none",outline:"none",color:"var(--text)",fontSize:12,fontFamily:"var(--mono)",width:"100%"}}/>
+                {searchQuery&&<button onClick={()=>{setSearchQuery("");setSearchOpen(false);}} style={{background:"none",border:"none",color:"var(--text3)",cursor:"pointer",fontSize:14}}>×</button>}
+              </div>
+            </div>
+            {/* Pinned stocks list */}
+            <div style={{flex:1,overflowY:"auto"}}>
+              {pinnedStocks.map(({sym,name,sector})=>{
+                const lp=livePrice[sym]||{};
+                const chg=lp.prev?(((lp.price-lp.prev)/lp.prev)*100).toFixed(2):"0.00";
+                const up=parseFloat(chg)>=0;
+                const data=priceData[sym]||[];
+                return(
+                  <div key={sym} onClick={()=>{setSelected(sym);setShowWatchlist(false);}}
+                    style={{padding:"12px 16px",cursor:"pointer",borderBottom:"0.5px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+                    <div style={{flex:1}}>
+                      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
+                        <span style={{fontFamily:"var(--mono)",fontWeight:600,fontSize:14,color:sym===selected?"var(--accent)":"var(--text)"}}>{sym}</span>
+                        <span style={{fontSize:8,padding:"1px 4px",background:`${SECTOR_COLORS[sector]||"#5B8DEF"}18`,color:SECTOR_COLORS[sector]||"#5B8DEF",borderRadius:2,fontFamily:"var(--mono)"}}>{sector}</span>
+                      </div>
+                      <div style={{fontSize:10,color:"var(--text3)"}}>{name}</div>
+                    </div>
+                    <div style={{textAlign:"right"}}>
+                      <div style={{fontFamily:"var(--mono)",fontSize:14,color:"var(--text)",fontWeight:600}}>${lp.price?.toFixed(2)||"—"}</div>
+                      <div style={{fontFamily:"var(--mono)",fontSize:11,color:up?"var(--up)":"var(--down)"}}>{up?"▲":"▼"}{Math.abs(chg)}%</div>
+                    </div>
+                    {data.length>0&&<Spark data={data.slice(-15)} up={up} w={50} h={20}/>}
+                  </div>
+                );
+              })}
+            </div>
+            {/* Quick add */}
+            <div style={{padding:"10px 16px",borderTop:"0.5px solid var(--border)"}}>
+              <div style={{fontSize:8,fontFamily:"var(--mono)",color:"var(--text3)",letterSpacing:"0.1em",marginBottom:8}}>QUICK ADD</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                {ALL_STOCKS.filter(s=>!pinnedSyms.includes(s.sym)).slice(0,8).map(s=>(
+                  <button key={s.sym} onClick={()=>{togglePin(s.sym);setSelected(s.sym);}}
+                    style={{padding:"4px 10px",fontSize:10,fontFamily:"var(--mono)",background:"transparent",border:"0.5px solid var(--border2)",borderRadius:4,color:"var(--text2)",cursor:"pointer"}}>
+                    +{s.sym}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MOBILE CHAT OVERLAY - shows on mobile when AI tab clicked */}
+        {mobilePanel==="chat"&&(
+          <div style={{position:"fixed",top:"clamp(44px,4vh,56px)",left:0,right:0,bottom:56,background:"var(--bg2)",zIndex:400,display:"flex",flexDirection:"column",animation:"fadeUp 0.2s ease"}}>
+            <div style={{padding:"10px 14px",borderBottom:"0.5px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <div style={{width:6,height:6,borderRadius:"50%",background:"var(--up)",animation:"pulse 2s infinite"}}/>
+                <span style={{fontFamily:"var(--mono)",fontSize:9,color:"var(--text3)",letterSpacing:"0.1em"}}>AI ANALYST · GROQ / LLAMA 3</span>
+              </div>
+              <button onClick={()=>setMobilePanel("chart")}
+                style={{background:"transparent",border:"0.5px solid var(--border2)",borderRadius:4,color:"var(--text2)",cursor:"pointer",padding:"4px 10px",fontSize:9,fontFamily:"var(--mono)"}}>
+                ✕ CLOSE
+              </button>
+            </div>
+            <div style={{flex:1,overflowY:"auto",padding:"12px",display:"flex",flexDirection:"column",gap:10}}>
+              {chatMessages.map((m,i)=>(
+                <div key={i} style={{animation:"fadeUp 0.3s ease",display:"flex",flexDirection:"column",alignItems:m.role==="user"?"flex-end":"flex-start"}}>
+                  {m.agent&&<div style={{fontSize:7,color:"var(--text3)",fontFamily:"var(--mono)",marginBottom:3}}>[{m.agent.toUpperCase()}{m.symbol?` · ${m.symbol}`:""}]</div>}
+                  <div style={{maxWidth:"90%",padding:"9px 12px",background:m.role==="user"?"rgba(91,141,239,0.1)":"var(--bg3)",border:`0.5px solid ${m.role==="user"?"rgba(91,141,239,0.25)":"var(--border)"}`,borderRadius:m.role==="user"?"12px 12px 2px 12px":"12px 12px 12px 2px",fontSize:13,lineHeight:1.65,color:m.role==="user"?"#93C5FD":"var(--text)",whiteSpace:"pre-wrap"}}>
+                    {m.content}
+                  </div>
+                </div>
+              ))}
+              {chatLoading&&(
+                <div style={{display:"flex",gap:5,padding:"6px 10px"}}>
+                  {[0,1,2].map(i=><div key={i} style={{width:6,height:6,borderRadius:"50%",background:"var(--accent)",animation:"pulse 1.2s ease infinite",animationDelay:`${i*0.2}s`}}/>)}
+                </div>
+              )}
+              <div ref={chatEndRef}/>
+            </div>
+            <div style={{padding:"6px 10px",borderTop:"0.5px solid var(--border)",display:"flex",gap:4,flexWrap:"wrap"}}>
+              {[`Analyze ${selected} technically`,`News for ${selected}`,"Portfolio risk","Market overview"].map((p,i)=>(
+                <button key={i} onClick={()=>setChatInput(p)}
+                  style={{padding:"4px 10px",fontSize:9,fontFamily:"var(--mono)",background:"transparent",border:"0.5px solid var(--border2)",borderRadius:3,color:"var(--text2)",cursor:"pointer"}}>
+                  {p}
+                </button>
+              ))}
+            </div>
+            <div style={{padding:"10px",borderTop:"0.5px solid var(--border)",display:"flex",gap:8}}>
+              <input value={chatInput} onChange={e=>setChatInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendChat()}
+                placeholder="Ask about any stock..."
+                style={{flex:1,background:"var(--bg3)",border:"0.5px solid var(--border2)",borderRadius:6,padding:"10px 12px",color:"var(--text)",fontSize:13,fontFamily:"var(--sans)",outline:"none"}}/>
+              <button onClick={sendChat} disabled={chatLoading||!chatInput.trim()}
+                style={{padding:"10px 16px",background:chatLoading||!chatInput.trim()?"var(--bg3)":"var(--accent)",color:chatLoading||!chatInput.trim()?"var(--text3)":"#000",border:"none",borderRadius:6,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"var(--mono)"}}>
+                SEND
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* NEWS FULL PAGE OVERLAY — triggered by top bar button */}
         {showNews&&(
           <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"var(--bg)",zIndex:200,display:"flex",flexDirection:"column",animation:"fadeUp 0.2s ease"}}>
@@ -1377,7 +1526,7 @@ function DashboardInner({ user, onLogout }) {
       </div>
 
       {/* RIGHT — AI CHAT */}
-      <div style={{background:"var(--bg2)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      <div className="chat-panel" style={{background:"var(--bg2)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
         <div style={{padding:"10px 14px",borderBottom:"0.5px solid var(--border)",display:"flex",alignItems:"center",gap:8}}>
           <div style={{width:6,height:6,borderRadius:"50%",background:"var(--up)",animation:"pulse 2s infinite"}}/>
           <span style={{fontFamily:"var(--mono)",fontSize:8,color:"var(--text3)",letterSpacing:"0.1em"}}>AI ANALYST · GROQ / LLAMA 3</span>
@@ -1415,6 +1564,32 @@ function DashboardInner({ user, onLogout }) {
             SEND
           </button>
         </div>
+      </div>
+
+      {/* MOBILE BOTTOM NAV */}
+      <div className={`mobile-nav${isMobile?" is-mobile":""}`} style={{gridColumn:"1/-1",background:"var(--bg2)",borderTop:"0.5px solid var(--border2)",height:56,display:"flex",alignItems:"center",justifyContent:"space-around",padding:"0 8px",zIndex:10}}>
+        {[
+          {id:"chart", icon:<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>, label:"Chart"},
+          {id:"watchlist", icon:<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"/></svg>, label:"Watch"},
+          {id:"news", icon:<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2z"/><path d="M4 10h16"/></svg>, label:"News"},
+          {id:"portfolio", icon:<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>, label:"Portfolio"},
+          {id:"chat", icon:<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>, label:"AI"},
+        ].map(({id,icon,label})=>{
+          const isActive = id==="news"?showNews:id==="portfolio"?showPortfolio:mobilePanel===id;
+          return (
+            <button key={id}
+              onClick={()=>{
+                if(id==="news"){setShowNews(true);setNewsTab("market");}
+                else if(id==="portfolio"){setShowPortfolio(true);}
+                else{setMobilePanel(id);setShowNews(false);setShowPortfolio(false);}
+              }}
+              style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"none",border:"none",cursor:"pointer",color:isActive?"var(--accent)":"var(--text3)",padding:"6px 12px",borderRadius:8,transition:"all 0.2s"}}>
+              {icon}
+              <span style={{fontSize:9,fontFamily:"var(--mono)",letterSpacing:"0.06em"}}>{label}</span>
+              {isActive&&<div style={{width:4,height:4,borderRadius:"50%",background:"var(--accent)",marginTop:-2}}/>}
+            </button>
+          );
+        })}
       </div>
 
       {/* NEWS TICKER TAPE */}
