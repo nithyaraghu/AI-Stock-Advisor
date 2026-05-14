@@ -1153,17 +1153,39 @@ function DashboardInner({ user, onLogout }) {
                       <div>
                         <div style={{fontSize:9,color:"var(--text3)",fontFamily:"var(--mono)",letterSpacing:"0.08em",marginBottom:4}}>BUY PRICE $</div>
                         <div style={{position:"relative"}}>
-                        <input value={addForm.avgCost} onChange={e=>setAddForm(p=>({...p,avgCost:e.target.value}))}
-                          placeholder="Market price" type="number" min="0" step="0.01"
-                          style={{width:"100%",background:"var(--bg3)",border:"0.5px solid var(--border2)",borderRadius:6,padding:"8px 12px",color:"var(--text)",fontSize:12,fontFamily:"var(--mono)",outline:"none"}}
-                          onFocus={e=>e.target.style.borderColor="var(--accent)"}
-                          onBlur={e=>e.target.style.borderColor="var(--border2)"}/>
-                        {addForm.symbol&&livePrice[addForm.symbol]&&(
-                          <button
-                            onClick={()=>setAddForm(p=>({...p,avgCost:livePrice[p.symbol].price.toFixed(2)}))}
-                            style={{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",background:"var(--accent2)",border:"none",borderRadius:3,color:"#fff",fontSize:8,fontFamily:"var(--mono)",padding:"2px 5px",cursor:"pointer",letterSpacing:"0.06em"}}>
-                            USE LIVE
-                          </button>
+                        <input value={addForm.avgCost}
+                          readOnly
+                          placeholder="Auto-fills from live market"
+                          type="text"
+                          style={{
+                            width:"100%",
+                            background:"var(--bg3)",
+                            border:"0.5px solid var(--border)",
+                            borderRadius:6,
+                            padding:"8px 12px",
+                            color:"var(--up)",
+                            fontSize:12,
+                            fontFamily:"var(--mono)",
+                            outline:"none",
+                            cursor:"default",
+                            opacity: addForm.avgCost ? 1 : 0.5,
+                          }}/>
+                        {addForm.avgCost&&(
+                          <span style={{
+                            position:"absolute",right:8,top:"50%",
+                            transform:"translateY(-50%)",
+                            fontSize:8,fontFamily:"var(--mono)",
+                            color:"var(--up)",letterSpacing:"0.06em"
+                          }}>LIVE ●</span>
+                        )}
+                        {!addForm.avgCost&&addForm.symbol&&(
+                          <span style={{
+                            position:"absolute",right:8,top:"50%",
+                            transform:"translateY(-50%)",
+                            fontSize:8,fontFamily:"var(--mono)",
+                            color:"var(--text3)",
+                            animation:"pulse 1.5s infinite"
+                          }}>fetching...</span>
                         )}
                       </div>
                       </div>
@@ -1569,8 +1591,7 @@ function DashboardInner({ user, onLogout }) {
       {/* MOBILE BOTTOM NAV */}
       <div className={`mobile-nav${isMobile?" is-mobile":""}`} style={{gridColumn:"1/-1",background:"var(--bg2)",borderTop:"0.5px solid var(--border2)",height:56,display:"flex",alignItems:"center",justifyContent:"space-around",padding:"0 8px",zIndex:10}}>
         {[
-          {id:"chart", icon:<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>, label:"Chart"},
-          {id:"watchlist", icon:<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"/></svg>, label:"Watch"},
+          {id:"chart", icon:<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>, label:"Markets"},
           {id:"news", icon:<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2z"/><path d="M4 10h16"/></svg>, label:"News"},
           {id:"portfolio", icon:<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>, label:"Portfolio"},
           {id:"chat", icon:<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>, label:"AI"},
