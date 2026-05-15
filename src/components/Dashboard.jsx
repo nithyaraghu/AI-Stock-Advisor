@@ -76,7 +76,7 @@ const Styles = () => (
 );
 
 /* ─── CONFIG ─────────────────────────────────────────────────── */
-const BACKEND = "http://127.0.0.1:5000";
+const BACKEND = import.meta.env.VITE_BACKEND_URL || "http://127.0.0.1:5000";
 // USER_ID now comes from props
 
 const ALL_STOCKS = [
