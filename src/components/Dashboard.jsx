@@ -233,12 +233,12 @@ const RSIGauge = ({value}) => {
     <div>
       <div style={{fontSize:9,color:"var(--text3)",fontFamily:"var(--mono)",letterSpacing:"0.1em",marginBottom:4}}>RSI (14)</div>
       <div style={{position:"relative",height:4,background:"var(--bg3)",borderRadius:2,overflow:"hidden",marginBottom:5,width:80}}>
-        <div style={{position:"absolute",left:0,top:0,height:"100%",width:`${value}%`,background:`linear-gradient(90deg,var(--accent2),${color})`,borderRadius:2,transition:"width 0.8s ease"}}/>
+        <div style={{position:"absolute",left:0,top:0,height:"100%",width:`${Math.min(value, 100)}%`,background:`linear-gradient(90deg,var(--accent2),${color})`,borderRadius:2,transition:"width 0.8s ease"}}/>
         <div style={{position:"absolute",left:"30%",top:0,width:1,height:"100%",background:"rgba(255,255,255,0.15)"}}/>
         <div style={{position:"absolute",left:"70%",top:0,width:1,height:"100%",background:"rgba(255,255,255,0.15)"}}/>
       </div>
       <div style={{display:"flex",alignItems:"baseline",gap:6}}>
-        <span style={{fontFamily:"var(--mono)",fontSize:18,fontWeight:600,color}}>{value}</span>
+        <span style={{fontFamily:"var(--mono)",fontSize:18,fontWeight:600,color}}>{typeof value === "number" ? value.toFixed(1) : value}</span>
         <span style={{fontSize:8,color,fontFamily:"var(--mono)",padding:"1px 5px",border:`0.5px solid ${color}`,borderRadius:2}}>{label}</span>
       </div>
     </div>
