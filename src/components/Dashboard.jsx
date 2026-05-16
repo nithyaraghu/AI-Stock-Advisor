@@ -660,7 +660,7 @@ function DashboardInner({ user, onLogout }) {
         try {
           const intelRes = await fetch(`${BACKEND}/portfolio/analyze`, {
             method: 'POST', headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({ user_id: user.userId || user.email, symbol: addedSymbol })
+            body: JSON.stringify({ user_id: user.userId || user.email, email: user.email, symbol: addedSymbol })
           });
           if (intelRes.ok) {
             const intel = await intelRes.json();
