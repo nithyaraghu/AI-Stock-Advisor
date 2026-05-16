@@ -199,51 +199,6 @@ const CandleBar = (props) => {
   const bodyBottom = toY(bodyLow);
   const bodyH      = Math.max(Math.abs(bodyBottom - bodyTop), 1);
 
-  // Portfolio Intel Popup
-  const IntelPopup = () => {
-    if (!intelPopup && !intelLoading) return null;
-    const riskColor = intelPopup?.risk_label === 'HIGH' ? '#C75B6A' : intelPopup?.risk_label === 'MODERATE' ? '#C4922A' : '#4CAF8A';
-    return (
-      <div style={{position:'fixed',top:0,left:0,width:'100%',height:'100%',background:'rgba(0,0,0,0.7)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
-        <div style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,maxWidth:620,width:'100%',maxHeight:'80vh',overflow:'auto',padding:28,position:'relative'}}>
-          <button onClick={() => setIntelPopup(null)} style={{position:'absolute',top:12,right:16,background:'none',border:'none',color:'var(--text3)',fontSize:20,cursor:'pointer'}}>x</button>
-          {intelLoading ? (
-            <div style={{textAlign:'center',padding:40}}>
-              <div style={{color:'var(--accent)',fontFamily:'var(--mono)',fontSize:12,marginBottom:8}}>ANALYZING PORTFOLIO...</div>
-              <div style={{color:'var(--text3)',fontSize:11}}>Running AI risk assessment</div>
-            </div>
-          ) : (
-            <>
-              <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:16}}>
-                <div style={{fontFamily:'var(--mono)',fontSize:13,fontWeight:700,color:'var(--text)'}}>PORTFOLIO INTELLIGENCE</div>
-                <div style={{padding:'3px 10px',borderRadius:4,background:riskColor+'22',color:riskColor,fontSize:10,fontFamily:'var(--mono)',fontWeight:600,border:`1px solid ${riskColor}44`}}>
-                  {intelPopup?.risk_label} RISK {intelPopup?.risk_score}/100
-                </div>
-                <div style={{marginLeft:'auto',fontSize:11,color:intelPopup?.portfolio_pnl>=0?'#4CAF8A':'#C75B6A',fontFamily:'var(--mono)'}}>
-                  {intelPopup?.portfolio_pnl >= 0 ? '+' : ''}{intelPopup?.portfolio_pnl}% P&L
-                </div>
-              </div>
-              <div style={{fontSize:12,color:'var(--text2)',lineHeight:1.7,whiteSpace:'pre-wrap'}}>
-                {intelPopup?.response}
-              </div>
-              <div style={{marginTop:16,display:'flex',gap:8,flexWrap:'wrap'}}>
-                {intelPopup?.holdings?.map(h => (
-                  <div key={h.symbol} style={{padding:'4px 10px',borderRadius:4,background:'var(--bg3)',border:'1px solid var(--border)',fontSize:10,fontFamily:'var(--mono)'}}>
-                    <span style={{color:h.is_new?'var(--accent)':'var(--text)',fontWeight:h.is_new?700:400}}>{h.symbol}</span>
-                    <span style={{color:h.signal==='BUY'?'#4CAF8A':h.signal==='SELL'?'#C75B6A':'var(--text3)',marginLeft:6}}>{h.signal}</span>
-                  </div>
-                ))}
-              </div>
-              <button onClick={() => setIntelPopup(null)} style={{marginTop:16,width:'100%',padding:10,background:'var(--accent)',color:'#000',border:'none',borderRadius:6,fontFamily:'var(--mono)',fontSize:11,fontWeight:700,cursor:'pointer'}}>
-                GOT IT
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-    );
-  };
-
   return (
     <g>
       {/* Wick */}
@@ -258,8 +213,6 @@ const CandleBar = (props) => {
         rx={1}
       />
     </g>
-  );
-  </>
   );
 };
 
@@ -763,7 +716,57 @@ function DashboardInner({ user, onLogout }) {
   const lastBar   = current[current.length-1]||{};
   const isLoading = loadingSyms.has(selected);
 
+
+  // ── PORTFOLIO INTEL POPUP ─────────────────────────────────
+  const IntelPopup = () => {
+    if (!intelPopup && !intelLoading) return null;
+    const riskColor = intelPopup?.risk_label === 'HIGH' ? '#C75B6A' : intelPopup?.risk_label === 'MODERATE' ? '#C4922A' : '#4CAF8A';
+    return (
+      <div style={{position:'fixed',top:0,left:0,width:'100%',height:'100%',background:'rgba(0,0,0,0.75)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+        <div style={{background:'var(--bg2)',border:'1px solid var(--border2)',borderRadius:12,maxWidth:620,width:'100%',maxHeight:'85vh',overflow:'auto',padding:28,position:'relative',boxShadow:'0 24px 64px rgba(0,0,0,0.6)',animation:'scaleIn 0.2s ease'}}>
+          <button onClick={() => setIntelPopup(null)} style={{position:'absolute',top:12,right:16,background:'none',border:'none',color:'var(--text3)',fontSize:18,cursor:'pointer',lineHeight:1}}>✕</button>
+          {intelLoading ? (
+            <div style={{textAlign:'center',padding:40}}>
+              <div style={{width:24,height:24,border:'2px solid var(--border2)',borderTop:'2px solid var(--accent)',borderRadius:'50%',animation:'spin 0.8s linear infinite',margin:'0 auto 16px'}}/>
+              <div style={{color:'var(--accent)',fontFamily:'var(--mono)',fontSize:12,marginBottom:8,letterSpacing:'0.1em'}}>ANALYZING PORTFOLIO...</div>
+              <div style={{color:'var(--text3)',fontSize:11,fontFamily:'var(--mono)'}}>Running AI risk assessment across all holdings</div>
+            </div>
+          ) : (
+            <>
+              <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:20,flexWrap:'wrap'}}>
+                <div style={{fontFamily:'var(--mono)',fontSize:13,fontWeight:700,color:'var(--text)',letterSpacing:'0.08em'}}>PORTFOLIO INTELLIGENCE</div>
+                <div style={{padding:'3px 10px',borderRadius:4,background:riskColor+'22',color:riskColor,fontSize:10,fontFamily:'var(--mono)',fontWeight:600,border:`1px solid ${riskColor}44`}}>
+                  {intelPopup?.risk_label} RISK · {intelPopup?.risk_score}/100
+                </div>
+                <div style={{marginLeft:'auto',fontSize:11,color:intelPopup?.portfolio_pnl>=0?'#4CAF8A':'#C75B6A',fontFamily:'var(--mono)',fontWeight:600}}>
+                  {intelPopup?.portfolio_pnl >= 0 ? '+' : ''}{intelPopup?.portfolio_pnl}% P&L
+                </div>
+              </div>
+              <div style={{fontSize:12,color:'var(--text2)',lineHeight:1.8,whiteSpace:'pre-wrap',fontFamily:'var(--sans)'}}>
+                {intelPopup?.response}
+              </div>
+              <div style={{marginTop:16,display:'flex',gap:6,flexWrap:'wrap'}}>
+                {intelPopup?.holdings?.map(h => (
+                  <div key={h.symbol} style={{padding:'4px 10px',borderRadius:4,background:'var(--bg3)',border:`1px solid ${h.is_new ? 'var(--accent)' : 'var(--border)'}`,fontSize:10,fontFamily:'var(--mono)'}}>
+                    <span style={{color:h.is_new?'var(--accent)':'var(--text)',fontWeight:h.is_new?700:400}}>{h.symbol}</span>
+                    <span style={{color:h.signal==='BUY'?'#4CAF8A':h.signal==='SELL'?'#C75B6A':'var(--text3)',marginLeft:6}}>{h.signal}</span>
+                    {h.is_new && <span style={{color:'var(--accent)',fontSize:8,marginLeft:4}}>NEW</span>}
+                  </div>
+                ))}
+              </div>
+              <button onClick={() => setIntelPopup(null)} style={{marginTop:20,width:'100%',padding:10,background:'var(--accent)',color:'#000',border:'none',borderRadius:6,fontFamily:'var(--mono)',fontSize:11,fontWeight:700,cursor:'pointer',letterSpacing:'0.1em'}}>
+                GOT IT
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
+    <>
+    <IntelPopup />
     <div className="main-grid" style={{
       fontFamily:"var(--sans)",background:"var(--bg)",
       width:"100vw",height:"100vh",
@@ -1697,6 +1700,7 @@ function DashboardInner({ user, onLogout }) {
       </div>
 
     </div>
+  </>
   );
 }
 
