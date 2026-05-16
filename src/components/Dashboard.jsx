@@ -199,6 +199,51 @@ const CandleBar = (props) => {
   const bodyBottom = toY(bodyLow);
   const bodyH      = Math.max(Math.abs(bodyBottom - bodyTop), 1);
 
+  // Portfolio Intel Popup
+  const IntelPopup = () => {
+    if (!intelPopup && !intelLoading) return null;
+    const riskColor = intelPopup?.risk_label === 'HIGH' ? '#C75B6A' : intelPopup?.risk_label === 'MODERATE' ? '#C4922A' : '#4CAF8A';
+    return (
+      <div style={{position:'fixed',top:0,left:0,width:'100%',height:'100%',background:'rgba(0,0,0,0.7)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+        <div style={{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:12,maxWidth:620,width:'100%',maxHeight:'80vh',overflow:'auto',padding:28,position:'relative'}}>
+          <button onClick={() => setIntelPopup(null)} style={{position:'absolute',top:12,right:16,background:'none',border:'none',color:'var(--text3)',fontSize:20,cursor:'pointer'}}>x</button>
+          {intelLoading ? (
+            <div style={{textAlign:'center',padding:40}}>
+              <div style={{color:'var(--accent)',fontFamily:'var(--mono)',fontSize:12,marginBottom:8}}>ANALYZING PORTFOLIO...</div>
+              <div style={{color:'var(--text3)',fontSize:11}}>Running AI risk assessment</div>
+            </div>
+          ) : (
+            <>
+              <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:16}}>
+                <div style={{fontFamily:'var(--mono)',fontSize:13,fontWeight:700,color:'var(--text)'}}>PORTFOLIO INTELLIGENCE</div>
+                <div style={{padding:'3px 10px',borderRadius:4,background:riskColor+'22',color:riskColor,fontSize:10,fontFamily:'var(--mono)',fontWeight:600,border:`1px solid ${riskColor}44`}}>
+                  {intelPopup?.risk_label} RISK {intelPopup?.risk_score}/100
+                </div>
+                <div style={{marginLeft:'auto',fontSize:11,color:intelPopup?.portfolio_pnl>=0?'#4CAF8A':'#C75B6A',fontFamily:'var(--mono)'}}>
+                  {intelPopup?.portfolio_pnl >= 0 ? '+' : ''}{intelPopup?.portfolio_pnl}% P&L
+                </div>
+              </div>
+              <div style={{fontSize:12,color:'var(--text2)',lineHeight:1.7,whiteSpace:'pre-wrap'}}>
+                {intelPopup?.response}
+              </div>
+              <div style={{marginTop:16,display:'flex',gap:8,flexWrap:'wrap'}}>
+                {intelPopup?.holdings?.map(h => (
+                  <div key={h.symbol} style={{padding:'4px 10px',borderRadius:4,background:'var(--bg3)',border:'1px solid var(--border)',fontSize:10,fontFamily:'var(--mono)'}}>
+                    <span style={{color:h.is_new?'var(--accent)':'var(--text)',fontWeight:h.is_new?700:400}}>{h.symbol}</span>
+                    <span style={{color:h.signal==='BUY'?'#4CAF8A':h.signal==='SELL'?'#C75B6A':'var(--text3)',marginLeft:6}}>{h.signal}</span>
+                  </div>
+                ))}
+              </div>
+              <button onClick={() => setIntelPopup(null)} style={{marginTop:16,width:'100%',padding:10,background:'var(--accent)',color:'#000',border:'none',borderRadius:6,fontFamily:'var(--mono)',fontSize:11,fontWeight:700,cursor:'pointer'}}>
+                GOT IT
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <g>
       {/* Wick */}
@@ -213,6 +258,8 @@ const CandleBar = (props) => {
         rx={1}
       />
     </g>
+  );
+  </>
   );
 };
 
@@ -477,6 +524,8 @@ function DashboardInner({ user, onLogout }) {
   const [addForm,       setAddForm]       = useState({symbol:'',quantity:'',avgCost:''});
   const [addError,      setAddError]      = useState('');
   const [addLoading,    setAddLoading]    = useState(false);
+  const [intelPopup,    setIntelPopup]    = useState(null);   // portfolio intel after add
+  const [intelLoading,  setIntelLoading]  = useState(false);
   const [loadingSyms,setLoadingSyms]= useState(new Set());
   const [mobilePanel, setMobilePanel] = useState("chart");
   const [showWatchlist, setShowWatchlist] = useState(false);
@@ -650,8 +699,22 @@ function DashboardInner({ user, onLogout }) {
         body: JSON.stringify({ stock: { symbol: symbol, quantity: parseFloat(quantity), avg_cost: parseFloat(avgCost) } })
       });
       if (res.ok) {
+        const addedSymbol = symbol;
         setAddForm({symbol:'',symbolSearch:'',quantity:'',avgCost:'',symbolOpen:false});
         await fetchPortfolio();
+        // Trigger portfolio intelligence analysis
+        setIntelLoading(true);
+        try {
+          const intelRes = await fetch(`${BACKEND}/portfolio/analyze`, {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ user_id: user.userId || user.email, symbol: addedSymbol })
+          });
+          if (intelRes.ok) {
+            const intel = await intelRes.json();
+            setIntelPopup(intel);
+          }
+        } catch {}
+        setIntelLoading(false);
       } else {
         const d = await res.json();
         setAddError(d.message || 'Failed to add stock');
@@ -1101,14 +1164,14 @@ function DashboardInner({ user, onLogout }) {
                             {matches.map(s=>(
                               <div key={s.sym}
                                 onMouseDown={async ()=>{
+                                  // Use cached livePrice first to avoid Polygon rate limits
                                   let price = livePrice[s.sym]?.price;
-                                  // Fetch live price if not cached
+                                  // Only fetch if not in cache
                                   if (!price) {
                                     try {
-                                      const r = await fetch(`${BACKEND}/stocks/yf/quote?symbol=${s.sym}`);
-                                      const d = await r.json();
-                                      price = d.price;
-                                      if (price) setLivePrice(prev=>({...prev,[s.sym]:{price,prev:d.prev_close||price}}));
+                                      // Load stock history to get price (reuses same Polygon call)
+                                      await loadStock(s.sym);
+                                      price = livePrice[s.sym]?.price;
                                     } catch {}
                                   }
                                   setAddForm(p=>({
