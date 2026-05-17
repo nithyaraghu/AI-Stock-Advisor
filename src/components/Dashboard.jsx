@@ -681,6 +681,31 @@ function DashboardInner({ user, onLogout }) {
     try {
       await fetch(`${BACKEND}/portfolio/${encodeURIComponent(user.email)}/${symbol}`, { method: 'DELETE' });
       await fetchPortfolio();
+      // Trigger portfolio intelligence after removal (if holdings remain)
+      const remaining = portfolio.filter(h => h.symbol !== symbol);
+      if (remaining.length > 0) {
+        setIntelLoading(true);
+        try {
+          const intelRes = await fetch(`${BACKEND}/portfolio/analyze`, {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({
+              user_id: user.userId || user.email,
+              email: user.email,
+              symbol: remaining[0].symbol,  // use first remaining stock as context
+              removed_symbol: symbol,       // pass removed symbol for context
+            })
+          });
+          if (intelRes.ok) {
+            const intel = await intelRes.json();
+            // Add context that this is a removal analysis
+            intel.response = `Stock Removed: ${symbol}
+
+` + intel.response;
+            setIntelPopup(intel);
+          }
+        } catch {}
+        setIntelLoading(false);
+      }
     } catch {}
   };
 
