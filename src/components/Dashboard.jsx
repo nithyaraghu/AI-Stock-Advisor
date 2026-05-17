@@ -507,6 +507,14 @@ function DashboardInner({ user, onLogout }) {
       setPriceData(prev=>({...prev,[sym]:prev[cacheKey]}));
       return;
     }
+    // Show mock data immediately so chart renders while real data loads
+    const base = BASE_PRICES[sym] || 100;
+    if (!priceData[sym]) {
+      let p = base;
+      const mock = Array.from({length:60},(_,i)=>{p=p*(1+(Math.random()-0.485)*0.018);return{day:i,date:`Day ${i}`,price:+p.toFixed(2),open:+p.toFixed(2),high:+(p*1.01).toFixed(2),low:+(p*0.99).toFixed(2),isUp:true,bodyHigh:+p.toFixed(2),bodyLow:+(p*0.99).toFixed(2),rsi:30+Math.random()*50,macd:0,signal:0,volume:50e6};});
+      setPriceData(prev=>({...prev,[sym]:mock}));
+      setLivePrice(prev=>({...prev,[sym]:{price:base,prev:base*0.99}}));
+    }
     setLoadingSyms(prev=>new Set([...prev,sym]));
     try {
       const interval = period==='5d' ? '1h' : period==='1y'||period==='2y' ? '1wk' : '1d';
@@ -520,18 +528,33 @@ function DashboardInner({ user, onLogout }) {
         setLivePrice(prev=>({...prev,[sym]:{price:last.close,prev:first.close}}));
       } else throw new Error("No data");
     } catch {
-      const base=BASE_PRICES[sym]||100; let p=base;
-      const mock=Array.from({length:60},(_,i)=>{p=p*(1+(Math.random()-0.485)*0.018);return{day:i,price:+p.toFixed(2),rsi:30+Math.random()*50,macd:0,signal:0,volume:50e6};});
-      setPriceData(prev=>({...prev,[sym]:mock}));
-      setLivePrice(prev=>({...prev,[sym]:{price:base,prev:base*0.99}}));
+      // Keep mock data, just update with base price
+      if (!priceData[sym]) {
+        let p = base;
+        const mock=Array.from({length:60},(_,i)=>{p=p*(1+(Math.random()-0.485)*0.018);return{day:i,date:`Day ${i}`,price:+p.toFixed(2),open:+p.toFixed(2),high:+(p*1.01).toFixed(2),low:+(p*0.99).toFixed(2),isUp:true,bodyHigh:+p.toFixed(2),bodyLow:+(p*0.99).toFixed(2),rsi:30+Math.random()*50,macd:0,signal:0,volume:50e6};});
+        setPriceData(prev=>({...prev,[sym]:mock}));
+        setLivePrice(prev=>({...prev,[sym]:{price:base,prev:base*0.99}}));
+      }
     }
     setLoadingSyms(prev=>{const n=new Set(prev);n.delete(sym);return n;});
   },[priceData]);
 
-  // Load pinned stocks
-  useEffect(()=>{pinnedSyms.forEach(s=>loadStock(s));},[pinnedSyms]);
-  // Load selected stock
-  useEffect(()=>{loadStock(selected, timeRange);},[selected, timeRange]);
+  // Load selected stock FIRST (priority), then load others in parallel
+  useEffect(()=>{
+    // Load selected immediately
+    loadStock(selected, timeRange).then(() => {
+      // Then load remaining pinned stocks in parallel with small stagger
+      const others = pinnedSyms.filter(s => s !== selected);
+      others.forEach((s, i) => setTimeout(() => loadStock(s), i * 200));
+    });
+  }, [selected, timeRange]);
+
+  // Load pinned stocks on pin change (skip selected - already loaded above)
+  useEffect(()=>{
+    pinnedSyms.filter(s => s !== selected).forEach((s, i) => {
+      setTimeout(() => loadStock(s), i * 200);
+    });
+  },[pinnedSyms]);
 
   // Reload when time range changes
   const handleTimeRange = (range) => {
@@ -553,7 +576,8 @@ function DashboardInner({ user, onLogout }) {
         });
       } catch {}
     };
-    fetchQ();
+    // Small delay to not compete with chart loading
+    setTimeout(fetchQ, 1000);
     const t=setInterval(fetchQ,30000);
     return()=>clearInterval(t);
   },[pinnedSyms]);
