@@ -294,24 +294,26 @@ const SentimentBadge = ({label, score}) => {
 /* ─── PURE SVG CANDLESTICK CHART ─────────────────────────────── */
 const CandlestickChart = ({ data }) => {
   const [tooltip, setTooltip] = useState(null);
-  const [dims, setDims] = useState({ w: 800, h: 400 });
-  const svgRef = useRef(null); // attached to container div
+  const [dims, setDims] = useState({ w: 800, h: 300 });
+  const svgRef = useRef(null);
 
   useEffect(() => {
-    const el = svgRef.current?.parentElement;
+    const el = svgRef.current;
     if (!el) return;
-    // Set initial size immediately
-    const rect = el.getBoundingClientRect();
-    if (rect.width > 0) setDims({ w: rect.width, h: rect.height });
-    const ro = new ResizeObserver(entries => {
-      for (const e of entries) {
-        const { width, height } = e.contentRect;
-        if (width > 0 && height > 0) setDims({ w: width, h: height });
+    const measure = () => {
+      const rect = el.getBoundingClientRect();
+      if (rect.width > 10 && rect.height > 10) {
+        setDims({ w: rect.width, h: rect.height });
       }
-    });
+    };
+    // Try immediately, then after a short delay for layout to settle
+    measure();
+    const t1 = setTimeout(measure, 50);
+    const t2 = setTimeout(measure, 200);
+    const ro = new ResizeObserver(measure);
     ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+    return () => { ro.disconnect(); clearTimeout(t1); clearTimeout(t2); };
+  }, [data]);
 
   if (!data?.length) return null;
 
@@ -339,7 +341,7 @@ const CandlestickChart = ({ data }) => {
   const xLabels = data.filter((_, i) => i % xStep === 0);
 
   return (
-    <div ref={svgRef} style={{position:"relative",width:"100%",height:"100%"}}>
+    <div ref={svgRef} style={{position:"relative",width:"100%",height:"100%",minHeight:200}}>
       <svg width={dims.w} height={dims.h} style={{overflow:"visible",display:"block"}}>
         {/* Grid lines */}
         {yTicks.map((p, i) => (
@@ -759,7 +761,9 @@ function DashboardInner({ user, onLogout }) {
           ) : (
             <>
               <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:20,flexWrap:'wrap'}}>
-                <div style={{fontFamily:'var(--mono)',fontSize:13,fontWeight:700,color:'var(--text)',letterSpacing:'0.08em'}}>PORTFOLIO INTELLIGENCE</div>
+                <div style={{fontFamily:'var(--mono)',fontSize:13,fontWeight:700,color:'var(--text)',letterSpacing:'0.08em'}}>
+                  {intelPopup?.removed_symbol ? `PORTFOLIO UPDATE — ${intelPopup.removed_symbol} REMOVED` : 'PORTFOLIO INTELLIGENCE'}
+                </div>
                 <div style={{padding:'3px 10px',borderRadius:4,background:riskColor+'22',color:riskColor,fontSize:10,fontFamily:'var(--mono)',fontWeight:600,border:`1px solid ${riskColor}44`}}>
                   {intelPopup?.risk_label} RISK · {intelPopup?.risk_score}/100
                 </div>
@@ -1007,7 +1011,7 @@ function DashboardInner({ user, onLogout }) {
                   </div>
                 : <ResponsiveContainer width="100%" height="100%">
                     {activeChart==="candle"
-                      ? <CandlestickChart data={current}/>
+                      ? <div style={{width:"100%",height:"100%",minHeight:240}}><CandlestickChart data={current}/></div>
                       : activeChart==="price"
                       ? <AreaChart data={current} margin={{top:4,right:4,bottom:0,left:0}}>
                           <defs>
